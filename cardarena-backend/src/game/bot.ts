@@ -1,7 +1,7 @@
 import { prisma } from "../db";
 import { GamePhase } from "@prisma/client";
 import { playCard } from "./play";
-import { placeBid } from "./bid";
+import { submitBid } from "./bid";
 
 export async function triggerBotMove(gameId: string) {
   const game = await prisma.game.findUnique({
@@ -22,7 +22,7 @@ export async function triggerBotMove(gameId: string) {
 
   if (game.phase === GamePhase.BIDDING) {
     const randomBid = Math.floor(Math.random() * 5) + 1;
-    await placeBid(gameId, currentSeat, randomBid);
+    await submitBid(gameId, currentSeat, randomBid);
     return;
   }
 

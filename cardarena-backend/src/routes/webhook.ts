@@ -12,7 +12,7 @@ router.post("/", async (req: Request, res: Response) => {
     return res.status(400).json({ error: "Missing Stripe signature" });
   }
 
-  let event: Stripe.Event;
+  let event: any;
 
   try {
     event = stripe.webhooks.constructEvent(
