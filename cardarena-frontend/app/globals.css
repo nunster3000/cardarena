@@ -1,0 +1,71 @@
+@import "tailwindcss";
+
+/* Reset + smoother rendering */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+/* Remove default margins */
+html,
+body {
+  padding: 0;
+  margin: 0;
+}
+
+/* Smooth font rendering */
+body {
+  font-family: Arial, Helvetica, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+
+  /* Prevent flash of white before gradient loads */
+  background-color: #0b1220;
+}
+
+/* Remove link underlines by default */
+a {
+  text-decoration: none;
+  color: inherit;
+}
+
+/* Improve button behavior */
+button {
+  cursor: pointer;
+  border: none;
+  outline: none;
+  background: none;
+}
+
+@keyframes gradientShift {
+  0% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0% 50%;
+  }
+}
+
+.animate-gradient {
+  background-size: 200% 200%;
+  animation: gradientShift 15s ease infinite;
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+.animate-shimmer {
+  animation: shimmer 8s linear infinite;
+}
+
+

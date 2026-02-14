@@ -1,0 +1,352 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+//////////////////////////////////////////////////////
+// ENUMS
+//////////////////////////////////////////////////////
+
+enum Role {
+  USER
+  ADMIN
+}
+
+enum Team {
+  TEAM_A
+  TEAM_B
+}
+
+enum TournamentStatus {
+  OPEN
+  FULL
+  COMPLETED
+  CANCELLED
+}
+
+enum WithdrawalStatus {
+  INITIATED
+  UNDER_REVIEW
+  APPROVED
+  REJECTED
+  COMPLETED
+}
+
+enum DepositStatus {
+  PENDING
+  COMPLETED
+  FAILED
+  CANCELED
+}
+
+enum TransactionType {
+  DEPOSIT
+  WITHDRAW
+  WAGER_LOCK
+  WAGER_RELEASE
+  WAGER_WIN
+  WAGER_LOSS
+  WITHDRAW_LOCK
+  WITHDRAW_COMPLETE
+  WITHDRAW_RELEASE
+  WITHDRAW_FEE
+}
+
+enum PlatformTransactionType {
+  TOURNAMENT_FEE
+  MANUAL_ADJUSTMENT
+}
+
+enum GameStatus {
+  WAITING
+  ACTIVE
+  PAUSED
+  COMPLETED
+  CANCELLED
+}
+
+enum GamePhase {
+  WAITING
+  DEALING
+  BIDDING
+  PLAYING
+  SCORING
+  GAME_COMPLETE
+}
+
+enum MoveType {
+  DEAL
+  BID
+  PLAY_CARD
+  END_HAND
+  END_GAME
+}
+
+//////////////////////////////////////////////////////
+// USER + WALLET
+//////////////////////////////////////////////////////
+
+model User {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  username  String   @unique
+  password  String
+  role      Role     @default(USER)
+  createdAt DateTime @default(now())
+
+  stripeAccountId String? @unique
+  stripeOnboarded Boolean @default(false)
+
+  disconnectCount  Int       @default(0)
+  lastDisconnectAt DateTime?
+  isSuspended      Boolean   @default(false)
+
+  wallet      Wallet?
+  deposits    Deposit[]
+  withdrawals Withdrawal[]
+  entries     TournamentEntry[]
+  gamePlayers GamePlayer[]
+  cards Card[]
+}
+
+model Wallet {
+  id        String   @id @default(uuid())
+  userId    String   @unique
+  user      User     @relation(fields: [userId], references: [id])
+  balance   Decimal  @default(0.00)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  transactions Ledger[]
+}
+
+model Ledger {
+  id           String          @id @default(uuid())
+  walletId     String
+  wallet       Wallet          @relation(fields: [walletId], references: [id])
+  type         TransactionType
+  amount       Decimal
+  balanceAfter Decimal
+  reference    String?
+  createdAt    DateTime        @default(now())
+
+  @@unique([reference, type])
+  @@index([reference])
+}
+
+enum CardRarity {
+  Common
+  Rare
+  Epic
+  Legendary
+}
+
+model Card {
+  id        String     @id @default(uuid())
+  name      String
+  rarity    CardRarity
+  ownerId   String
+  owner     User       @relation(fields: [ownerId], references: [id])
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+
+  @@index([ownerId, createdAt])
+}
+
+
+//////////////////////////////////////////////////////
+// DEPOSITS / WITHDRAWALS
+//////////////////////////////////////////////////////
+
+model Deposit {
+  id              String        @id @default(uuid())
+  userId          String
+  amount          Int
+  status          DepositStatus @default(PENDING)
+  stripeSessionId String?       @unique
+  stripePaymentId String?       @unique
+  idempotencyKey  String        @unique
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  user User @relation(fields: [userId], references: [id])
+}
+
+model Withdrawal {
+  id             String           @id @default(uuid())
+  userId         String
+  amount         Int
+  fee            Int
+  netAmount      Int
+  status         WithdrawalStatus @default(INITIATED)
+  stripePayoutId String?          @unique
+  idempotencyKey String           @unique
+  availableAt    DateTime
+  processedAt    DateTime?
+  retryCount     Int              @default(0)
+  createdAt      DateTime         @default(now())
+
+  user User @relation(fields: [userId], references: [id])
+}
+
+//////////////////////////////////////////////////////
+// TOURNAMENTS
+//////////////////////////////////////////////////////
+
+model Tournament {
+  id          String           @id @default(uuid())
+  entryFee    Int
+  maxPlayers  Int
+  status      TournamentStatus @default(OPEN)
+  totalPrize  Int              @default(0)
+  platformFee Int              @default(0)
+  createdAt   DateTime         @default(now())
+
+  settled   Boolean   @default(false)
+  settledAt DateTime?
+
+  entries TournamentEntry[]
+  games   Game[]
+}
+
+model TournamentEntry {
+  id           String   @id @default(uuid())
+  tournamentId String
+  userId       String
+  team         Team
+  isWinner     Boolean  @default(false)
+  createdAt    DateTime @default(now())
+
+  tournament Tournament @relation(fields: [tournamentId], references: [id])
+  user       User       @relation(fields: [userId], references: [id])
+
+  @@unique([tournamentId, userId])
+}
+
+//////////////////////////////////////////////////////
+// PLATFORM WALLET
+//////////////////////////////////////////////////////
+
+model PlatformWallet {
+  id        String   @id @default(uuid())
+  balance   Decimal  @default(0.00)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  transactions PlatformLedger[]
+}
+
+model PlatformLedger {
+  id           String                  @id @default(uuid())
+  walletId     String
+  wallet       PlatformWallet          @relation(fields: [walletId], references: [id])
+  type         PlatformTransactionType
+  amount       Decimal
+  balanceAfter Decimal
+  reference    String?
+  createdAt    DateTime                @default(now())
+
+  @@index([reference])
+}
+
+//////////////////////////////////////////////////////
+// GAME ENGINE (SERVER-AUTHORITATIVE)
+//////////////////////////////////////////////////////
+
+model Game {
+  id           String     @id @default(uuid())
+  tournamentId String
+  status       GameStatus @default(WAITING)
+  phase        GamePhase  @default(WAITING)
+
+  dealerSeat      Int
+  currentTurnSeat Int
+
+  teamAScore Int @default(0)
+  teamBScore Int @default(0)
+  teamASets  Int @default(0)
+  teamBSets  Int @default(0)
+
+  winnerTeam Team?
+
+  state Json
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tournament Tournament   @relation(fields: [tournamentId], references: [id])
+  players    GamePlayer[]
+  hands      GameHand[]
+  moves      GameMove[]
+  moveAudits GameMoveAudit[]
+}
+
+model GamePlayer {
+  id String @id @default(uuid())
+
+  gameId String
+  game   Game   @relation(fields: [gameId], references: [id])
+
+  userId String?
+  user   User?   @relation(fields: [userId], references: [id])
+
+  team  Team
+  seat  Int
+  isBot Boolean @default(false)
+
+  disconnectedAt DateTime?
+  replacedByBot  Boolean   @default(false)
+
+  createdAt DateTime @default(now())
+
+  moves GameMove[]
+}
+
+model GameHand {
+  id String @id @default(uuid())
+
+  gameId String
+  game   Game   @relation(fields: [gameId], references: [id])
+
+  handNumber Int
+
+  teamABid Int
+  teamBBid Int
+
+  teamATricks Int @default(0)
+  teamBTricks Int @default(0)
+
+  teamAScoreDelta Int @default(0)
+  teamBScoreDelta Int @default(0)
+
+  createdAt DateTime @default(now())
+}
+
+model GameMove {
+  id String @id @default(uuid())
+
+  gameId String
+  game   Game   @relation(fields: [gameId], references: [id])
+
+  playerId String
+  player   GamePlayer @relation(fields: [playerId], references: [id])
+
+  type    MoveType
+  payload Json
+
+  createdAt DateTime @default(now())
+}
+
+model GameMoveAudit {
+  id        String   @id @default(uuid())
+  gameId    String
+  playerId  String?
+  type      MoveType
+  payload   Json
+  createdAt DateTime @default(now())
+
+  game Game @relation(fields: [gameId], references: [id])
+}
