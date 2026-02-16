@@ -3,8 +3,6 @@ name: CardArena Backend CI
 on:
   push:
     branches: [ main ]
-  pull_request:
-    branches: [ main ]
 
 jobs:
   test:
@@ -27,25 +25,28 @@ jobs:
 
     env:
       DATABASE_URL: postgresql://postgres:postgres@localhost:5432/cardarena_test
-      STRIPE_SECRET_KEY: sk_test_dummy_key_for_ci
+      STRIPE_SECRET_KEY: sk_test_dummy_key
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v3
 
       - name: Use Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v3
         with:
-          node-version: 20
+          node-version: 18
 
       - name: Install dependencies
         working-directory: cardarena-backend
         run: npm install
 
-      - name: Run Prisma migrations
+      - name: Generate Prisma Client
+        working-directory: cardarena-backend
+        run: npx prisma generate
+
+      - name: Run Prisma Migrations
         working-directory: cardarena-backend
         run: npx prisma migrate deploy
 
-      - name: Run tests
+      - name: Run Tests
         working-directory: cardarena-backend
         run: npm test
