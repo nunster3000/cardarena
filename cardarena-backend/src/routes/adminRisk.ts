@@ -3,6 +3,7 @@ import { authMiddleware, AuthRequest } from "../middleware/auth";
 import { AppError } from "../middleware/errorHandler";
 import { prisma } from "../db";
 import { logAdminAction } from "../lib/adminAudit";
+import { createUserNotification, sendAccountRestrictionEmail } from "../lib/userComms";
 
 const router = Router();
 
@@ -208,17 +209,35 @@ router.post(
 router.post("/users/:id/block-withdrawals", authMiddleware, async (req: AuthRequest, res, next) => {
   try {
     ensureAdmin(req);
-    const user = await prisma.user.update({
-      where: { id: req.params.id },
-      data: { withdrawalBlocked: true },
+    const reason = String(req.body.reason || "Withdrawal access blocked for policy review");
+    const user = await prisma.$transaction(async (tx) => {
+      const updated = await tx.user.update({
+        where: { id: req.params.id },
+        data: { withdrawalBlocked: true },
+      });
+      await createUserNotification(tx, {
+        userId: updated.id,
+        type: "USER_WITHDRAWALS_BLOCKED",
+        title: "Withdrawals Blocked",
+        message: `Withdrawals are temporarily blocked on your account. ${reason}`,
+        payload: { reason },
+      });
+      await logAdminAction(tx, {
+        adminUserId: req.userId!,
+        action: "USER_BLOCK_WITHDRAWALS",
+        targetType: "USER",
+        targetId: updated.id,
+        reason,
+      });
+      return updated;
     });
-    await logAdminAction(prisma, {
-      adminUserId: req.userId!,
-      action: "USER_BLOCK_WITHDRAWALS",
-      targetType: "USER",
-      targetId: user.id,
-      reason: "Admin withdrawal block",
-    });
+    sendAccountRestrictionEmail({
+      to: user.email,
+      username: user.username,
+      scope: "WITHDRAWALS",
+      action: "BLOCKED",
+      reason,
+    }).catch(() => undefined);
     res.json({ success: true, userId: user.id });
   } catch (err) {
     next(err);
@@ -231,17 +250,32 @@ router.post(
   async (req: AuthRequest, res, next) => {
     try {
       ensureAdmin(req);
-      const user = await prisma.user.update({
-        where: { id: req.params.id },
-        data: { withdrawalBlocked: false },
+      const user = await prisma.$transaction(async (tx) => {
+        const updated = await tx.user.update({
+          where: { id: req.params.id },
+          data: { withdrawalBlocked: false },
+        });
+        await createUserNotification(tx, {
+          userId: updated.id,
+          type: "USER_WITHDRAWALS_UNBLOCKED",
+          title: "Withdrawals Restored",
+          message: "Your withdrawal access has been restored.",
+        });
+        await logAdminAction(tx, {
+          adminUserId: req.userId!,
+          action: "USER_UNBLOCK_WITHDRAWALS",
+          targetType: "USER",
+          targetId: updated.id,
+          reason: "Admin withdrawal unblock",
+        });
+        return updated;
       });
-      await logAdminAction(prisma, {
-        adminUserId: req.userId!,
-        action: "USER_UNBLOCK_WITHDRAWALS",
-        targetType: "USER",
-        targetId: user.id,
-        reason: "Admin withdrawal unblock",
-      });
+      sendAccountRestrictionEmail({
+        to: user.email,
+        username: user.username,
+        scope: "WITHDRAWALS",
+        action: "UNBLOCKED",
+      }).catch(() => undefined);
       res.json({ success: true, userId: user.id });
     } catch (err) {
       next(err);

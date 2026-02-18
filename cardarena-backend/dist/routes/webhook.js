@@ -4,6 +4,7 @@ const express_1 = require("express");
 const stripe_1 = require("../lib/stripe");
 const db_1 = require("../db");
 const depositHold_1 = require("../lib/depositHold");
+const userComms_1 = require("../lib/userComms");
 const router = (0, express_1.Router)();
 router.post("/", async (req, res) => {
     const sig = req.headers["stripe-signature"];
@@ -91,6 +92,13 @@ router.post("/", async (req, res) => {
                         releaseAt: (0, depositHold_1.getDepositReleaseAt)(),
                     },
                 });
+                await (0, userComms_1.createUserNotification)(tx, {
+                    userId,
+                    type: "USER_DEPOSIT_COMPLETED",
+                    title: "Deposit Completed",
+                    message: `Your deposit of $${(amount / 100).toFixed(2)} is now available for play.`,
+                    payload: { depositId, amount, releaseAt: (0, depositHold_1.getDepositReleaseAt)().toISOString() },
+                });
             });
             console.log("Deposit processed safely:", reference);
         }
@@ -139,6 +147,13 @@ router.post("/", async (req, res) => {
                     status: "COMPLETED",
                 },
             });
+            await (0, userComms_1.createUserNotification)(db_1.prisma, {
+                userId: withdrawal.userId,
+                type: "USER_WITHDRAWAL_COMPLETED",
+                title: "Withdrawal Completed",
+                message: `Your withdrawal of $${(withdrawal.amount / 100).toFixed(2)} was completed.`,
+                payload: { withdrawalId: withdrawal.id, amount: withdrawal.amount },
+            });
             console.log(`Payout confirmed for withdrawal ${withdrawal.id}`);
         }
     }
@@ -154,6 +169,13 @@ router.post("/", async (req, res) => {
                 data: {
                     status: "REJECTED",
                 },
+            });
+            await (0, userComms_1.createUserNotification)(db_1.prisma, {
+                userId: withdrawal.userId,
+                type: "USER_WITHDRAWAL_REJECTED",
+                title: "Withdrawal Failed",
+                message: `Your withdrawal of $${(withdrawal.amount / 100).toFixed(2)} failed. Please retry or contact support.`,
+                payload: { withdrawalId: withdrawal.id, amount: withdrawal.amount },
             });
             console.log(`Payout failed for withdrawal ${withdrawal.id}`);
         }

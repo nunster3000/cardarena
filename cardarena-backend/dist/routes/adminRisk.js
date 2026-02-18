@@ -5,6 +5,7 @@ const auth_1 = require("../middleware/auth");
 const errorHandler_1 = require("../middleware/errorHandler");
 const db_1 = require("../db");
 const adminAudit_1 = require("../lib/adminAudit");
+const userComms_1 = require("../lib/userComms");
 const router = (0, express_1.Router)();
 function ensureAdmin(req) {
     if (req.userRole !== "ADMIN") {
@@ -181,17 +182,35 @@ router.post("/withdrawals/:id/release", auth_1.authMiddleware, async (req, res, 
 router.post("/users/:id/block-withdrawals", auth_1.authMiddleware, async (req, res, next) => {
     try {
         ensureAdmin(req);
-        const user = await db_1.prisma.user.update({
-            where: { id: req.params.id },
-            data: { withdrawalBlocked: true },
+        const reason = String(req.body.reason || "Withdrawal access blocked for policy review");
+        const user = await db_1.prisma.$transaction(async (tx) => {
+            const updated = await tx.user.update({
+                where: { id: req.params.id },
+                data: { withdrawalBlocked: true },
+            });
+            await (0, userComms_1.createUserNotification)(tx, {
+                userId: updated.id,
+                type: "USER_WITHDRAWALS_BLOCKED",
+                title: "Withdrawals Blocked",
+                message: `Withdrawals are temporarily blocked on your account. ${reason}`,
+                payload: { reason },
+            });
+            await (0, adminAudit_1.logAdminAction)(tx, {
+                adminUserId: req.userId,
+                action: "USER_BLOCK_WITHDRAWALS",
+                targetType: "USER",
+                targetId: updated.id,
+                reason,
+            });
+            return updated;
         });
-        await (0, adminAudit_1.logAdminAction)(db_1.prisma, {
-            adminUserId: req.userId,
-            action: "USER_BLOCK_WITHDRAWALS",
-            targetType: "USER",
-            targetId: user.id,
-            reason: "Admin withdrawal block",
-        });
+        (0, userComms_1.sendAccountRestrictionEmail)({
+            to: user.email,
+            username: user.username,
+            scope: "WITHDRAWALS",
+            action: "BLOCKED",
+            reason,
+        }).catch(() => undefined);
         res.json({ success: true, userId: user.id });
     }
     catch (err) {
@@ -201,17 +220,32 @@ router.post("/users/:id/block-withdrawals", auth_1.authMiddleware, async (req, r
 router.post("/users/:id/unblock-withdrawals", auth_1.authMiddleware, async (req, res, next) => {
     try {
         ensureAdmin(req);
-        const user = await db_1.prisma.user.update({
-            where: { id: req.params.id },
-            data: { withdrawalBlocked: false },
+        const user = await db_1.prisma.$transaction(async (tx) => {
+            const updated = await tx.user.update({
+                where: { id: req.params.id },
+                data: { withdrawalBlocked: false },
+            });
+            await (0, userComms_1.createUserNotification)(tx, {
+                userId: updated.id,
+                type: "USER_WITHDRAWALS_UNBLOCKED",
+                title: "Withdrawals Restored",
+                message: "Your withdrawal access has been restored.",
+            });
+            await (0, adminAudit_1.logAdminAction)(tx, {
+                adminUserId: req.userId,
+                action: "USER_UNBLOCK_WITHDRAWALS",
+                targetType: "USER",
+                targetId: updated.id,
+                reason: "Admin withdrawal unblock",
+            });
+            return updated;
         });
-        await (0, adminAudit_1.logAdminAction)(db_1.prisma, {
-            adminUserId: req.userId,
-            action: "USER_UNBLOCK_WITHDRAWALS",
-            targetType: "USER",
-            targetId: user.id,
-            reason: "Admin withdrawal unblock",
-        });
+        (0, userComms_1.sendAccountRestrictionEmail)({
+            to: user.email,
+            username: user.username,
+            scope: "WITHDRAWALS",
+            action: "UNBLOCKED",
+        }).catch(() => undefined);
         res.json({ success: true, userId: user.id });
     }
     catch (err) {

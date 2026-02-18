@@ -10,6 +10,7 @@ const db_1 = require("../db");
 const matchmaking_1 = require("../game/matchmaking");
 const auth_1 = require("../middleware/auth");
 const errorHandler_1 = require("../middleware/errorHandler");
+const userComms_1 = require("../lib/userComms");
 const MAX_PARTY_SIZE = 4;
 const parties = new Map();
 const partyByUser = new Map();
@@ -167,6 +168,13 @@ router.post("/invite", async (req, res, next) => {
         };
         invites.set(invite.id, invite);
         addInviteForUser(friendId, invite.id);
+        await (0, userComms_1.createUserNotification)(db_1.prisma, {
+            userId: friendId,
+            type: "PARTY_INVITE",
+            title: "Party Invite",
+            message: "You received a party invite from a friend.",
+            payload: { inviteId: invite.id, partyId: party.id, fromUserId: userId },
+        });
         res.json({ success: true });
     }
     catch (err) {
@@ -197,6 +205,13 @@ router.post("/invites/:inviteId/respond", async (req, res, next) => {
             throw new errorHandler_1.AppError("You are already in a party", 400);
         party.members.push({ userId, isReady: true });
         partyByUser.set(userId, party.id);
+        await (0, userComms_1.createUserNotification)(db_1.prisma, {
+            userId: party.leaderId,
+            type: "PARTY_MEMBER_JOINED",
+            title: "Party Member Joined",
+            message: "A player accepted your party invite.",
+            payload: { partyId: party.id, memberUserId: userId },
+        });
         res.json({ success: true, party: await buildPartyResponse(party, userId) });
     }
     catch (err) {

@@ -60,6 +60,8 @@ router.get("/me", async (req, res, next) => {
                 avatarPreset: true,
                 avatarUrl: true,
                 bio: true,
+                stripeAccountId: true,
+                stripeOnboarded: true,
                 isOnline: true,
                 wallet: {
                     select: {
@@ -118,6 +120,73 @@ router.get("/me/ledger", async (req, res, next) => {
             take,
         });
         res.json({ wallet, entries });
+    }
+    catch (err) {
+        next(err);
+    }
+});
+router.get("/me/notifications", async (req, res, next) => {
+    try {
+        const take = Math.min(Number(req.query.take) || 50, 200);
+        const notifications = await db_1.prisma.adminNotification.findMany({
+            where: { userId: req.userId },
+            orderBy: { createdAt: "desc" },
+            take,
+        });
+        res.json({ data: notifications });
+    }
+    catch (err) {
+        next(err);
+    }
+});
+router.post("/me/notifications/:id/read", async (req, res, next) => {
+    try {
+        const existing = await db_1.prisma.adminNotification.findUnique({
+            where: { id: req.params.id },
+            select: { id: true, userId: true },
+        });
+        if (!existing || existing.userId !== req.userId) {
+            throw new errorHandler_1.AppError("Notification not found", 404);
+        }
+        const notification = await db_1.prisma.adminNotification.update({
+            where: { id: req.params.id },
+            data: {
+                status: "READ",
+                readAt: new Date(),
+            },
+        });
+        res.json({ success: true, notification });
+    }
+    catch (err) {
+        next(err);
+    }
+});
+router.get("/me/compliance-history", async (req, res, next) => {
+    try {
+        const take = Math.min(Number(req.query.take) || 100, 300);
+        const userId = req.userId;
+        const wallet = await db_1.prisma.wallet.findUnique({
+            where: { userId },
+            select: { id: true },
+        });
+        const [flags, adminActions] = await Promise.all([
+            db_1.prisma.riskFlag.findMany({
+                where: { userId },
+                orderBy: { createdAt: "desc" },
+                take,
+            }),
+            db_1.prisma.adminActionAudit.findMany({
+                where: {
+                    OR: [
+                        { targetType: "USER", targetId: userId },
+                        ...(wallet?.id ? [{ targetType: "WALLET", targetId: wallet.id }] : []),
+                    ],
+                },
+                orderBy: { createdAt: "desc" },
+                take,
+            }),
+        ]);
+        res.json({ flags, adminActions });
     }
     catch (err) {
         next(err);

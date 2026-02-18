@@ -8,6 +8,7 @@ exports.evaluateRapidDepositWithdrawRisk = evaluateRapidDepositWithdrawRisk;
 exports.evaluateWinRateAndCollusionRisk = evaluateWinRateAndCollusionRisk;
 const client_1 = require("@prisma/client");
 const metrics_1 = require("../monitoring/metrics");
+const userComms_1 = require("./userComms");
 const MULTI_ACCOUNT_MIN_MATCHES = Number(process.env.RISK_MULTI_ACCOUNT_MIN_MATCHES || 2);
 const WITHDRAW_COUNT_24H_THRESHOLD = Number(process.env.RISK_WITHDRAW_COUNT_24H || 3);
 const WITHDRAW_AMOUNT_24H_THRESHOLD = Number(process.env.RISK_WITHDRAW_AMOUNT_24H || 150000);
@@ -57,6 +58,31 @@ async function createRiskFlag(db, input) {
     });
     (0, metrics_1.incMetric)("risk.flags.created.total");
     (0, metrics_1.incMetric)(`risk.flags.type.${input.type}`);
+    await (0, userComms_1.createUserNotification)(db, {
+        userId: input.userId,
+        type: "USER_RISK_FLAG_OPENED",
+        title: "Compliance Flag Opened",
+        message: `Your account was flagged: ${input.reason}`,
+        payload: {
+            type: input.type,
+            severity: input.severity,
+            reason: input.reason,
+            details: input.details ?? {},
+        },
+    });
+    const user = await db.user.findUnique({
+        where: { id: input.userId },
+        select: { email: true, username: true },
+    });
+    if (user) {
+        (0, userComms_1.sendRiskFlagEmail)({
+            to: user.email,
+            username: user.username,
+            flagType: input.type,
+            severity: input.severity,
+            reason: input.reason,
+        }).catch(() => undefined);
+    }
     return flag;
 }
 async function evaluateMultiAccountRisk(db, userId, ip, userAgent) {

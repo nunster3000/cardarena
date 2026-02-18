@@ -6,6 +6,7 @@ import {
   UserSignalType,
 } from "@prisma/client";
 import { incMetric } from "../monitoring/metrics";
+import { createUserNotification, sendRiskFlagEmail } from "./userComms";
 
 const MULTI_ACCOUNT_MIN_MATCHES = Number(
   process.env.RISK_MULTI_ACCOUNT_MIN_MATCHES || 2
@@ -95,6 +96,32 @@ export async function createRiskFlag(db: DbClient, input: FlagInput) {
 
   incMetric("risk.flags.created.total");
   incMetric(`risk.flags.type.${input.type}`);
+  await createUserNotification(db as any, {
+    userId: input.userId,
+    type: "USER_RISK_FLAG_OPENED",
+    title: "Compliance Flag Opened",
+    message: `Your account was flagged: ${input.reason}`,
+    payload: {
+      type: input.type,
+      severity: input.severity,
+      reason: input.reason,
+      details: input.details ?? {},
+    },
+  });
+
+  const user = await db.user.findUnique({
+    where: { id: input.userId },
+    select: { email: true, username: true },
+  });
+  if (user) {
+    sendRiskFlagEmail({
+      to: user.email,
+      username: user.username,
+      flagType: input.type,
+      severity: input.severity,
+      reason: input.reason,
+    }).catch(() => undefined);
+  }
 
   return flag;
 }

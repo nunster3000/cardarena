@@ -8,7 +8,18 @@ import { clearSession, getSession, setRoleView } from "../../lib/session";
 
 const space = Space_Grotesk({ subsets: ["latin"] });
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:3000";
-const AVATARS = ["ACE", "KING", "QUEEN", "JACK", "DICE", "ROCKET", "SHIELD", "STAR"];
+const DAILY_DEPOSIT_LIMIT_CENTS = 50000;
+const DAILY_WITHDRAW_LIMIT_CENTS = 50000;
+const AVATARS = [
+  { key: "ACE", label: "Ace", src: "/avatars/ace-spade.svg" },
+  { key: "KING", label: "King", src: "/avatars/king-crown.svg" },
+  { key: "QUEEN", label: "Queen", src: "/avatars/queen-heart.svg" },
+  { key: "JACK", label: "Jack", src: "/avatars/jack-club.svg" },
+  { key: "DICE", label: "Dice", src: "/avatars/dice.svg" },
+  { key: "ROCKET", label: "Rocket", src: "/avatars/rocket.svg" },
+  { key: "SHIELD", label: "Shield", src: "/avatars/shield.svg" },
+  { key: "STAR", label: "Star", src: "/avatars/star.svg" },
+];
 
 type Me = {
   id: string;
@@ -18,6 +29,8 @@ type Me = {
   avatarUrl?: string | null;
   bio?: string | null;
   wallet?: { balance: string | number; isFrozen: boolean } | null;
+  stripeOnboarded?: boolean;
+  stripeAccountId?: string | null;
 };
 
 type Friend = {
@@ -93,14 +106,64 @@ type LedgerEntry = {
   createdAt: string;
 };
 
-async function toDataUrl(file: File) {
-  const buffer = await file.arrayBuffer();
-  const bytes = new Uint8Array(buffer);
-  let binary = "";
-  bytes.forEach((b) => {
-    binary += String.fromCharCode(b);
-  });
-  return `data:${file.type};base64,${btoa(binary)}`;
+type UserNotification = {
+  id: string;
+  type: string;
+  title: string;
+  message: string;
+  status: string;
+  createdAt: string;
+};
+
+type ComplianceFlag = {
+  id: string;
+  type: string;
+  severity: string;
+  status: string;
+  reason: string;
+  createdAt: string;
+  resolvedAt?: string | null;
+};
+
+type ComplianceAction = {
+  id: string;
+  action: string;
+  targetType: string;
+  reason?: string | null;
+  createdAt: string;
+};
+
+async function toCroppedDataUrl(file: File, size = 800) {
+  const objectUrl = URL.createObjectURL(file);
+  try {
+    const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const img = new window.Image();
+      img.onload = () => resolve(img);
+      img.onerror = () => reject(new Error("Unable to read image"));
+      img.src = objectUrl;
+    });
+
+    const canvas = document.createElement("canvas");
+    canvas.width = size;
+    canvas.height = size;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) throw new Error("Canvas unavailable");
+
+    const crop = Math.min(image.width, image.height);
+    const sx = Math.floor((image.width - crop) / 2);
+    const sy = Math.floor((image.height - crop) / 2);
+    ctx.drawImage(image, sx, sy, crop, crop, 0, 0, size, size);
+
+    let quality = 0.9;
+    let dataUrl = canvas.toDataURL("image/jpeg", quality);
+    while (dataUrl.length > 280_000 && quality > 0.45) {
+      quality -= 0.1;
+      dataUrl = canvas.toDataURL("image/jpeg", quality);
+    }
+    return dataUrl;
+  } finally {
+    URL.revokeObjectURL(objectUrl);
+  }
 }
 
 export default function DashboardPage() {
@@ -115,9 +178,12 @@ export default function DashboardPage() {
   const [friendSearch, setFriendSearch] = useState<FriendSearch[]>([]);
   const [tournaments, setTournaments] = useState<TournamentRow[]>([]);
   const [ledger, setLedger] = useState<LedgerEntry[]>([]);
-  const [depositAmount, setDepositAmount] = useState("1000");
-  const [withdrawAmount, setWithdrawAmount] = useState("2500");
-  const [bio, setBio] = useState("");
+  const [notifications, setNotifications] = useState<UserNotification[]>([]);
+  const [complianceFlags, setComplianceFlags] = useState<ComplianceFlag[]>([]);
+  const [complianceActions, setComplianceActions] = useState<ComplianceAction[]>([]);
+  const [stripeReady, setStripeReady] = useState(false);
+  const [depositAmount, setDepositAmount] = useState("");
+  const [withdrawAmount, setWithdrawAmount] = useState("");
   const [uploading, setUploading] = useState(false);
   const [isAdminAccount, setIsAdminAccount] = useState(false);
   const [queueingTableId, setQueueingTableId] = useState<string | null>(null);
@@ -129,6 +195,19 @@ export default function DashboardPage() {
 
   const topFriends = useMemo(() => friends.filter((f) => f.isTop), [friends]);
   const walletBalance = Number(me?.wallet?.balance || 0);
+  const depositCents = Number(depositAmount || 0);
+  const withdrawCents = Number(withdrawAmount || 0);
+  const depositInvalid =
+    !depositAmount ||
+    Number.isNaN(depositCents) ||
+    depositCents < 1000 ||
+    depositCents > DAILY_DEPOSIT_LIMIT_CENTS;
+  const withdrawInvalid =
+    !withdrawAmount ||
+    Number.isNaN(withdrawCents) ||
+    withdrawCents < 2500 ||
+    withdrawCents > DAILY_WITHDRAW_LIMIT_CENTS ||
+    withdrawCents > walletBalance;
 
   async function api(path: string, init: RequestInit = {}) {
     const res = await fetch(`${API_BASE}${path}`, {
@@ -145,17 +224,18 @@ export default function DashboardPage() {
   }
 
   async function loadAll() {
-    const [meData, online, friendData, tournamentData, ledgerData, partyData] = await Promise.all([
+    const [meData, online, friendData, tournamentData, ledgerData, partyData, notifyData, historyData] = await Promise.all([
       api("/api/v1/users/me"),
       api("/api/v1/users/online/count"),
       api("/api/v1/users/friends"),
       api("/api/v1/tournaments"),
       api("/api/v1/users/me/ledger?take=15"),
       api("/api/v1/party/me"),
+      api("/api/v1/users/me/notifications?take=20"),
+      api("/api/v1/users/me/compliance-history?take=20"),
     ]);
 
     setMe(meData);
-    setBio(meData.bio || "");
     setOnlinePlayers(online.onlinePlayers || 0);
     setFriends(friendData.friends || []);
     setIncoming(friendData.incomingRequests || []);
@@ -163,6 +243,10 @@ export default function DashboardPage() {
     setLedger(ledgerData.entries || []);
     setParty(partyData.party || null);
     setPartyInvites(partyData.pendingInvites || []);
+    setNotifications(notifyData.data || []);
+    setComplianceFlags(historyData.flags || []);
+    setComplianceActions(historyData.adminActions || []);
+    setStripeReady(Boolean(meData.stripeOnboarded));
   }
 
   useEffect(() => {
@@ -207,8 +291,8 @@ export default function DashboardPage() {
   async function onAvatarUpload(file: File) {
     try {
       setUploading(true);
-      const dataUrl = await toDataUrl(file);
-      await saveProfile({ avatarUrl: dataUrl, avatarPreset: "", bio });
+      const dataUrl = await toCroppedDataUrl(file);
+      await saveProfile({ avatarUrl: dataUrl, avatarPreset: "" });
     } finally {
       setUploading(false);
     }
@@ -234,26 +318,47 @@ export default function DashboardPage() {
 
   async function deposit() {
     try {
-      const body = await api("/api/v1/deposits", {
+      if (depositInvalid) {
+        setMessage("Deposit must be between $10 and daily max $500.");
+        return;
+      }
+      const body = await api("/api/v1/deposits/checkout", {
         method: "POST",
-        body: JSON.stringify({ amount: Number(depositAmount) }),
+        body: JSON.stringify({ amount: depositCents }),
       });
-      setMessage(
-        body.clientSecret
-          ? "Deposit initiated. Complete payment in Stripe checkout flow."
-          : "Deposit request submitted."
-      );
-      await loadAll();
+      if (body.url) {
+        window.location.href = body.url;
+        return;
+      }
+      setMessage("Unable to open Stripe checkout.");
     } catch (err: unknown) {
       setMessage(err instanceof Error ? err.message : "Deposit failed");
     }
   }
 
+  async function startPayoutVerification() {
+    try {
+      await api("/api/v1/connect/create-account", { method: "POST" });
+      const onboard = await api("/api/v1/connect/onboard", { method: "POST" });
+      if (onboard.url) {
+        window.location.href = onboard.url;
+        return;
+      }
+      setMessage("Unable to open Stripe onboarding.");
+    } catch (err: unknown) {
+      setMessage(err instanceof Error ? err.message : "Unable to start payout verification");
+    }
+  }
+
   async function withdraw() {
     try {
+      if (withdrawInvalid) {
+        setMessage("Withdrawal must be at least $25, not exceed wallet balance, and stay within daily max $500.");
+        return;
+      }
       const body = await api("/api/v1/withdrawals", {
         method: "POST",
-        body: JSON.stringify({ amount: Number(withdrawAmount) }),
+        body: JSON.stringify({ amount: withdrawCents }),
       });
       setMessage(body.message || "Withdrawal requested.");
       await loadAll();
@@ -382,6 +487,7 @@ export default function DashboardPage() {
   const avatar =
     me?.avatarUrl ||
     (me?.avatarPreset ? null : null);
+  const avatarPreset = AVATARS.find((a) => a.key === me?.avatarPreset);
 
   const freeTournament = tournaments.find((t) => t.entryFee === 0 && t.status === "OPEN");
   const canUseFriendsMode = Boolean(party && party.members.length > 1);
@@ -480,58 +586,47 @@ export default function DashboardPage() {
         <section className="mt-4 grid gap-4 lg:grid-cols-3">
           <div className="rounded-2xl border border-white/15 bg-black/35 p-4">
             <h2 className="text-lg font-bold">My Profile</h2>
-            <div className="mt-3 flex items-center gap-3">
+            <div className="mt-3 flex items-start gap-4">
               {avatar ? (
-                <Image src={avatar} alt="Avatar" width={64} height={64} unoptimized className="h-16 w-16 rounded-full border border-white/20 object-cover" />
+                <Image src={avatar} alt="Avatar" width={112} height={112} unoptimized className="h-28 w-28 rounded-full border border-white/20 object-cover" />
+              ) : avatarPreset ? (
+                <Image src={avatarPreset.src} alt={avatarPreset.label} width={112} height={112} className="h-28 w-28 rounded-full border border-white/20 bg-white/10 object-cover" />
               ) : (
-                <div className="flex h-16 w-16 items-center justify-center rounded-full border border-white/20 bg-white/10 text-2xl">
+                <div className="flex h-28 w-28 items-center justify-center rounded-full border border-white/20 bg-white/10 text-2xl">
                   {me?.avatarPreset || "USER"}
                 </div>
               )}
-              <div>
+              <div className="flex-1">
                 <p className="font-semibold">{me?.username}</p>
                 <p className="text-xs text-white/70">{me?.email}</p>
                 <p className="mt-1 text-xs text-emerald-300">{me?.wallet?.isFrozen ? "Wallet Frozen" : "Wallet Active"}</p>
+                <label className="mt-3 block text-xs text-white/70">Upload profile photo (auto-cropped to 800x800)</label>
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) onAvatarUpload(file);
+                  }}
+                  className="mt-1 w-full text-xs text-white/80"
+                />
+                {uploading && <p className="mt-1 text-xs text-white/70">Processing photo...</p>}
               </div>
             </div>
-
-            <textarea
-              value={bio}
-              onChange={(e) => setBio(e.target.value)}
-              placeholder="Write your player bio..."
-              className="mt-3 h-20 w-full rounded-xl bg-white/10 px-3 py-2 text-sm outline-none ring-1 ring-white/20"
-            />
-            <button
-              onClick={() => saveProfile({ bio })}
-              className="mt-2 rounded-lg bg-white/15 px-3 py-2 text-sm hover:bg-white/25"
-            >
-              Save Bio
-            </button>
 
             <p className="mt-4 text-xs text-white/70">Choose avatar preset</p>
             <div className="mt-2 grid grid-cols-4 gap-2">
               {AVATARS.map((icon) => (
                 <button
-                  key={icon}
-                  onClick={() => saveProfile({ avatarPreset: icon, avatarUrl: "", bio })}
-                  className="rounded-lg bg-white/10 py-2 text-xl hover:bg-white/20"
+                  key={icon.key}
+                  onClick={() => saveProfile({ avatarPreset: icon.key, avatarUrl: "" })}
+                  className="rounded-lg bg-white/10 p-2 text-xs hover:bg-white/20"
                 >
-                  {icon}
+                  <Image src={icon.src} alt={icon.label} width={48} height={48} className="mx-auto h-12 w-12 rounded-full object-cover" />
+                  <span className="mt-1 block">{icon.label}</span>
                 </button>
               ))}
             </div>
-
-            <label className="mt-3 block text-xs text-white/70">Or upload image</label>
-            <input
-              type="file"
-              accept="image/*"
-              onChange={(e) => {
-                const file = e.target.files?.[0];
-                if (file) onAvatarUpload(file);
-              }}
-              className="mt-1 w-full text-xs text-white/80"
-            />
-            {uploading && <p className="mt-1 text-xs text-white/70">Uploading...</p>}
           </div>
 
           <div className="rounded-2xl border border-white/15 bg-black/35 p-4">
@@ -598,22 +693,49 @@ export default function DashboardPage() {
               Balance: <span className="font-semibold">${Number(me?.wallet?.balance || 0).toFixed(2)}</span>
             </p>
             <div className="mt-3 space-y-2">
+              <button
+                onClick={startPayoutVerification}
+                className="w-full rounded-lg bg-white/15 py-2 text-sm font-semibold text-white hover:bg-white/25"
+              >
+                {stripeReady ? "Payout Verification Complete" : "Verify Payout Identity (Stripe)"}
+              </button>
+              <p className="text-xs text-white/70">
+                {stripeReady
+                  ? "Your Stripe payout profile is active."
+                  : "Required before withdrawals are processed."}
+              </p>
               <input
                 value={depositAmount}
                 onChange={(e) => setDepositAmount(e.target.value)}
+                type="number"
+                min={1000}
+                max={DAILY_DEPOSIT_LIMIT_CENTS}
                 className="w-full rounded-lg bg-white/10 px-3 py-2 text-sm ring-1 ring-white/20 outline-none"
                 placeholder="Deposit amount (cents)"
               />
-              <button onClick={deposit} className="w-full rounded-lg bg-emerald-500 py-2 font-semibold text-black hover:bg-emerald-400">
+              <p className="text-[11px] text-white/50">Daily deposit max: $500.00</p>
+              <button
+                onClick={deposit}
+                disabled={depositInvalid}
+                className="w-full rounded-lg bg-emerald-500 py-2 font-semibold text-black hover:bg-emerald-400 disabled:cursor-not-allowed disabled:bg-slate-500/50 disabled:text-slate-200"
+              >
                 Deposit Funds
               </button>
               <input
                 value={withdrawAmount}
                 onChange={(e) => setWithdrawAmount(e.target.value)}
+                type="number"
+                min={2500}
+                max={DAILY_WITHDRAW_LIMIT_CENTS}
                 className="w-full rounded-lg bg-white/10 px-3 py-2 text-sm ring-1 ring-white/20 outline-none"
                 placeholder="Withdraw amount (cents)"
               />
-              <button onClick={withdraw} className="w-full rounded-lg bg-blue-500 py-2 font-semibold text-white hover:bg-blue-400">
+              <p className="text-[11px] text-white/50">Daily withdrawal max: $500.00 · Available now: ${(walletBalance / 100).toFixed(2)}</p>
+              <button
+                onClick={withdraw}
+                disabled={withdrawInvalid || !stripeReady}
+                className="w-full rounded-lg bg-blue-500 py-2 font-semibold text-white hover:bg-blue-400 disabled:cursor-not-allowed disabled:bg-slate-500/50 disabled:text-slate-200"
+              >
                 Withdraw Funds
               </button>
             </div>
@@ -628,6 +750,46 @@ export default function DashboardPage() {
                 </div>
               ))}
               {!ledger.length && <p className="text-white/70">No entries yet.</p>}
+            </div>
+          </div>
+        </section>
+
+        <section className="mt-4 grid gap-4 lg:grid-cols-3">
+          <div className="rounded-2xl border border-white/15 bg-black/35 p-4 lg:col-span-2">
+            <h2 className="text-lg font-bold">Notification Center</h2>
+            <p className="text-xs text-white/70">Deposits, withdrawals, freezes, friend requests, and policy alerts.</p>
+            <div className="mt-3 max-h-64 space-y-2 overflow-auto">
+              {notifications.map((n) => (
+                <div key={n.id} className="rounded-lg border border-white/10 bg-white/5 p-3">
+                  <p className="text-sm font-semibold">{n.title}</p>
+                  <p className="text-xs text-white/80">{n.message}</p>
+                  <p className="mt-1 text-[11px] text-white/60">{new Date(n.createdAt).toLocaleString()} · {n.status}</p>
+                </div>
+              ))}
+              {!notifications.length && <p className="text-xs text-white/65">No notifications yet.</p>}
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-white/15 bg-black/35 p-4">
+            <h2 className="text-lg font-bold">Flag History</h2>
+            <div className="mt-3 max-h-64 space-y-2 overflow-auto text-xs">
+              {complianceFlags.map((f) => (
+                <div key={f.id} className="rounded bg-white/10 p-2">
+                  <p className="font-semibold">{f.type} · {f.severity}</p>
+                  <p className="text-white/80">{f.reason}</p>
+                  <p className="text-white/60">{f.status} · {new Date(f.createdAt).toLocaleDateString()}</p>
+                </div>
+              ))}
+              {complianceActions.map((a) => (
+                <div key={a.id} className="rounded bg-white/10 p-2">
+                  <p className="font-semibold">{a.action}</p>
+                  <p className="text-white/70">{a.targetType}</p>
+                  <p className="text-white/60">{new Date(a.createdAt).toLocaleDateString()}</p>
+                </div>
+              ))}
+              {!complianceFlags.length && !complianceActions.length && (
+                <p className="text-white/65">No history yet.</p>
+              )}
             </div>
           </div>
         </section>

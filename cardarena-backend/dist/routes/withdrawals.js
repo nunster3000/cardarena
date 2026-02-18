@@ -8,10 +8,11 @@ const risk_1 = require("../lib/risk");
 const errorHandler_1 = require("../middleware/errorHandler");
 const auth_1 = require("../middleware/auth");
 const metrics_1 = require("../monitoring/metrics");
+const userComms_1 = require("../lib/userComms");
 const router = (0, express_1.Router)();
 const MIN_WITHDRAWAL = 2500;
 const WITHDRAWAL_FEE = 500;
-const DAILY_LIMIT = 100000;
+const DAILY_LIMIT = 50000;
 const MONTHLY_LIMIT = 500000;
 router.post("/", auth_1.authMiddleware, async (req, res, next) => {
     try {
@@ -24,7 +25,13 @@ router.post("/", auth_1.authMiddleware, async (req, res, next) => {
         }
         const user = await db_1.prisma.user.findUnique({
             where: { id: req.userId },
-            select: { id: true, withdrawalBlocked: true, isFrozen: true },
+            select: {
+                id: true,
+                withdrawalBlocked: true,
+                isFrozen: true,
+                stripeAccountId: true,
+                stripeOnboarded: true,
+            },
         });
         if (!user)
             throw new errorHandler_1.AppError("User not found", 404);
@@ -33,6 +40,9 @@ router.post("/", auth_1.authMiddleware, async (req, res, next) => {
         }
         if (user.withdrawalBlocked) {
             throw new errorHandler_1.AppError("Withdrawals are blocked on this account", 403);
+        }
+        if (!user.stripeAccountId || !user.stripeOnboarded) {
+            throw new errorHandler_1.AppError("Complete Stripe payout verification before withdrawing funds.", 400);
         }
         await db_1.prisma.$transaction(async (tx) => {
             await (0, risk_1.recordUserSignal)(tx, {
@@ -171,6 +181,13 @@ router.post("/", auth_1.authMiddleware, async (req, res, next) => {
                     balanceAfter: newBalance,
                     reference: withdrawal.id,
                 },
+            });
+            await (0, userComms_1.createUserNotification)(tx, {
+                userId: req.userId,
+                type: "USER_WITHDRAWAL_INITIATED",
+                title: "Withdrawal Requested",
+                message: `A withdrawal request for $${(amount / 100).toFixed(2)} has been submitted.`,
+                payload: { amount, netAmount, autoHold: shouldAutoHold },
             });
         });
         await (0, risk_1.evaluateWithdrawalVelocityRisk)(db_1.prisma, req.userId);

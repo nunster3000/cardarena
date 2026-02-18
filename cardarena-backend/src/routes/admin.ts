@@ -5,6 +5,7 @@ import { AppError } from "../middleware/errorHandler";
 import { authMiddleware, AuthRequest, requireRole } from "../middleware/auth";
 import { getBooleanSetting, setBooleanSetting } from "../lib/settings";
 import { logAdminAction } from "../lib/adminAudit";
+import { createUserNotification, sendAccountRestrictionEmail, sendSignupDecisionEmail } from "../lib/userComms";
 
 const router = Router();
 
@@ -122,6 +123,12 @@ router.post("/users/:id/approve-signup", async (req: AuthRequest, res, next) => 
         where: { userId: req.params.id, type: "SIGNUP_REVIEW", status: "OPEN" },
         data: { status: "RESOLVED", actedAt: new Date(), readAt: new Date() },
       });
+      await createUserNotification(tx, {
+        userId: req.params.id,
+        type: "USER_SIGNUP_APPROVED",
+        title: "Signup Approved",
+        message: "Your CardArena account has been approved. You can now login.",
+      });
 
       await logAdminAction(tx, {
         adminUserId: req.userId!,
@@ -132,6 +139,11 @@ router.post("/users/:id/approve-signup", async (req: AuthRequest, res, next) => 
       });
       return updated;
     });
+    sendSignupDecisionEmail({
+      to: user.email,
+      username: user.username,
+      decision: "APPROVED",
+    }).catch(() => undefined);
 
     res.json({ success: true, user });
   } catch (err) {
@@ -156,6 +168,12 @@ router.post("/users/:id/waitlist-signup", async (req: AuthRequest, res, next) =>
         where: { userId: req.params.id, type: "SIGNUP_REVIEW", status: "OPEN" },
         data: { status: "RESOLVED", actedAt: new Date(), readAt: new Date() },
       });
+      await createUserNotification(tx, {
+        userId: req.params.id,
+        type: "USER_SIGNUP_WAITLISTED",
+        title: "Signup Waitlisted",
+        message: "Your CardArena account is currently waitlisted. We will notify you when access opens.",
+      });
 
       await logAdminAction(tx, {
         adminUserId: req.userId!,
@@ -166,6 +184,11 @@ router.post("/users/:id/waitlist-signup", async (req: AuthRequest, res, next) =>
       });
       return updated;
     });
+    sendSignupDecisionEmail({
+      to: user.email,
+      username: user.username,
+      decision: "WAITLISTED",
+    }).catch(() => undefined);
 
     res.json({ success: true, user });
   } catch (err) {
@@ -208,22 +231,39 @@ router.post("/users/:id/role", async (req: AuthRequest, res, next) => {
 router.post("/users/:id/freeze", async (req: AuthRequest, res, next) => {
   try {
     const reason = String(req.body.reason || "Admin freeze");
-    const user = await prisma.user.update({
-      where: { id: req.params.id },
-      data: {
-        isFrozen: true,
-        frozenAt: new Date(),
-        frozenReason: reason,
-      },
-      select: { id: true, isFrozen: true, frozenAt: true, frozenReason: true },
+    const user = await prisma.$transaction(async (tx) => {
+      const updated = await tx.user.update({
+        where: { id: req.params.id },
+        data: {
+          isFrozen: true,
+          frozenAt: new Date(),
+          frozenReason: reason,
+        },
+        select: { id: true, username: true, email: true, isFrozen: true, frozenAt: true, frozenReason: true },
+      });
+      await createUserNotification(tx, {
+        userId: updated.id,
+        type: "USER_ACCOUNT_FROZEN",
+        title: "Account Frozen",
+        message: `Your account was frozen due to a CardArena Terms of Service violation. ${reason}`,
+        payload: { reason },
+      });
+      await logAdminAction(tx, {
+        adminUserId: req.userId!,
+        action: "USER_FREEZE",
+        targetType: "USER",
+        targetId: updated.id,
+        reason,
+      });
+      return updated;
     });
-    await logAdminAction(prisma, {
-      adminUserId: req.userId!,
-      action: "USER_FREEZE",
-      targetType: "USER",
-      targetId: user.id,
+    sendAccountRestrictionEmail({
+      to: user.email,
+      username: user.username,
+      scope: "ACCOUNT",
+      action: "FROZEN",
       reason,
-    });
+    }).catch(() => undefined);
     res.json({ success: true, user });
   } catch (err) {
     next(err);
@@ -232,22 +272,37 @@ router.post("/users/:id/freeze", async (req: AuthRequest, res, next) => {
 
 router.post("/users/:id/unfreeze", async (req, res, next) => {
   try {
-    const user = await prisma.user.update({
-      where: { id: req.params.id },
-      data: {
-        isFrozen: false,
-        frozenAt: null,
-        frozenReason: null,
-      },
-      select: { id: true, isFrozen: true },
+    const user = await prisma.$transaction(async (tx) => {
+      const updated = await tx.user.update({
+        where: { id: req.params.id },
+        data: {
+          isFrozen: false,
+          frozenAt: null,
+          frozenReason: null,
+        },
+        select: { id: true, username: true, email: true, isFrozen: true },
+      });
+      await createUserNotification(tx, {
+        userId: updated.id,
+        type: "USER_ACCOUNT_UNFROZEN",
+        title: "Account Unfrozen",
+        message: "Your account freeze has been lifted. You may now use the platform.",
+      });
+      await logAdminAction(tx, {
+        adminUserId: (req as AuthRequest).userId!,
+        action: "USER_UNFREEZE",
+        targetType: "USER",
+        targetId: updated.id,
+        reason: "Admin unfreeze",
+      });
+      return updated;
     });
-    await logAdminAction(prisma, {
-      adminUserId: (req as AuthRequest).userId!,
-      action: "USER_UNFREEZE",
-      targetType: "USER",
-      targetId: user.id,
-      reason: "Admin unfreeze",
-    });
+    sendAccountRestrictionEmail({
+      to: user.email,
+      username: user.username,
+      scope: "ACCOUNT",
+      action: "UNFROZEN",
+    }).catch(() => undefined);
     res.json({ success: true, user });
   } catch (err) {
     next(err);
@@ -386,21 +441,41 @@ router.post("/wallets/:userId/adjust", async (req: AuthRequest, res, next) => {
 router.post("/wallets/:userId/freeze", async (req, res, next) => {
   try {
     const reason = String(req.body.reason || "Admin wallet freeze");
-    const wallet = await prisma.wallet.update({
-      where: { userId: req.params.userId },
-      data: {
-        isFrozen: true,
-        frozenAt: new Date(),
-        frozenReason: reason,
-      },
+    const wallet = await prisma.$transaction(async (tx) => {
+      const updated = await tx.wallet.update({
+        where: { userId: req.params.userId },
+        data: {
+          isFrozen: true,
+          frozenAt: new Date(),
+          frozenReason: reason,
+        },
+        include: {
+          user: { select: { id: true, email: true, username: true } },
+        },
+      });
+      await createUserNotification(tx, {
+        userId: updated.userId,
+        type: "USER_WALLET_FROZEN",
+        title: "Wallet Frozen",
+        message: `Your wallet was frozen due to a CardArena Terms of Service violation. ${reason}`,
+        payload: { reason },
+      });
+      await logAdminAction(tx, {
+        adminUserId: (req as AuthRequest).userId!,
+        action: "WALLET_FREEZE",
+        targetType: "WALLET",
+        targetId: updated.id,
+        reason,
+      });
+      return updated;
     });
-    await logAdminAction(prisma, {
-      adminUserId: (req as AuthRequest).userId!,
-      action: "WALLET_FREEZE",
-      targetType: "WALLET",
-      targetId: wallet.id,
+    sendAccountRestrictionEmail({
+      to: wallet.user.email,
+      username: wallet.user.username,
+      scope: "WALLET",
+      action: "FROZEN",
       reason,
-    });
+    }).catch(() => undefined);
     res.json({ success: true, wallet });
   } catch (err) {
     next(err);
@@ -409,21 +484,39 @@ router.post("/wallets/:userId/freeze", async (req, res, next) => {
 
 router.post("/wallets/:userId/unfreeze", async (req, res, next) => {
   try {
-    const wallet = await prisma.wallet.update({
-      where: { userId: req.params.userId },
-      data: {
-        isFrozen: false,
-        frozenAt: null,
-        frozenReason: null,
-      },
+    const wallet = await prisma.$transaction(async (tx) => {
+      const updated = await tx.wallet.update({
+        where: { userId: req.params.userId },
+        data: {
+          isFrozen: false,
+          frozenAt: null,
+          frozenReason: null,
+        },
+        include: {
+          user: { select: { id: true, email: true, username: true } },
+        },
+      });
+      await createUserNotification(tx, {
+        userId: updated.userId,
+        type: "USER_WALLET_UNFROZEN",
+        title: "Wallet Unfrozen",
+        message: "Your wallet freeze has been lifted.",
+      });
+      await logAdminAction(tx, {
+        adminUserId: (req as AuthRequest).userId!,
+        action: "WALLET_UNFREEZE",
+        targetType: "WALLET",
+        targetId: updated.id,
+        reason: "Admin wallet unfreeze",
+      });
+      return updated;
     });
-    await logAdminAction(prisma, {
-      adminUserId: (req as AuthRequest).userId!,
-      action: "WALLET_UNFREEZE",
-      targetType: "WALLET",
-      targetId: wallet.id,
-      reason: "Admin wallet unfreeze",
-    });
+    sendAccountRestrictionEmail({
+      to: wallet.user.email,
+      username: wallet.user.username,
+      scope: "WALLET",
+      action: "UNFROZEN",
+    }).catch(() => undefined);
     res.json({ success: true, wallet });
   } catch (err) {
     next(err);

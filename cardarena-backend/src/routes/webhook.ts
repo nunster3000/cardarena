@@ -3,6 +3,7 @@ import Stripe from "stripe";
 import { stripe } from "../lib/stripe";
 import { prisma } from "../db";
 import { getDepositReleaseAt } from "../lib/depositHold";
+import { createUserNotification } from "../lib/userComms";
 
 const router = Router();
 
@@ -115,6 +116,14 @@ router.post("/", async (req: Request, res: Response) => {
             releaseAt: getDepositReleaseAt(),
           },
         });
+
+        await createUserNotification(tx as any, {
+          userId,
+          type: "USER_DEPOSIT_COMPLETED",
+          title: "Deposit Completed",
+          message: `Your deposit of $${(amount / 100).toFixed(2)} is now available for play.`,
+          payload: { depositId, amount, releaseAt: getDepositReleaseAt().toISOString() },
+        });
       });
 
       console.log("Deposit processed safely:", reference);
@@ -172,6 +181,13 @@ router.post("/", async (req: Request, res: Response) => {
           status: "COMPLETED",
         },
       });
+      await createUserNotification(prisma as any, {
+        userId: withdrawal.userId,
+        type: "USER_WITHDRAWAL_COMPLETED",
+        title: "Withdrawal Completed",
+        message: `Your withdrawal of $${(withdrawal.amount / 100).toFixed(2)} was completed.`,
+        payload: { withdrawalId: withdrawal.id, amount: withdrawal.amount },
+      });
 
       console.log(`Payout confirmed for withdrawal ${withdrawal.id}`);
     }
@@ -191,6 +207,13 @@ router.post("/", async (req: Request, res: Response) => {
         data: {
           status: "REJECTED",
         },
+      });
+      await createUserNotification(prisma as any, {
+        userId: withdrawal.userId,
+        type: "USER_WITHDRAWAL_REJECTED",
+        title: "Withdrawal Failed",
+        message: `Your withdrawal of $${(withdrawal.amount / 100).toFixed(2)} failed. Please retry or contact support.`,
+        payload: { withdrawalId: withdrawal.id, amount: withdrawal.amount },
       });
 
       console.log(`Payout failed for withdrawal ${withdrawal.id}`);

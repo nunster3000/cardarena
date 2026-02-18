@@ -5,6 +5,7 @@ import { prisma } from "../db";
 import { joinQueue } from "../game/matchmaking";
 import { authMiddleware, AuthRequest } from "../middleware/auth";
 import { AppError } from "../middleware/errorHandler";
+import { createUserNotification } from "../lib/userComms";
 
 type PartyMemberState = {
   userId: string;
@@ -203,6 +204,13 @@ router.post("/invite", async (req: AuthRequest, res, next) => {
     };
     invites.set(invite.id, invite);
     addInviteForUser(friendId, invite.id);
+    await createUserNotification(prisma as any, {
+      userId: friendId,
+      type: "PARTY_INVITE",
+      title: "Party Invite",
+      message: "You received a party invite from a friend.",
+      payload: { inviteId: invite.id, partyId: party.id, fromUserId: userId },
+    });
 
     res.json({ success: true });
   } catch (err) {
@@ -236,6 +244,13 @@ router.post("/invites/:inviteId/respond", async (req: AuthRequest, res, next) =>
 
     party.members.push({ userId, isReady: true });
     partyByUser.set(userId, party.id);
+    await createUserNotification(prisma as any, {
+      userId: party.leaderId,
+      type: "PARTY_MEMBER_JOINED",
+      title: "Party Member Joined",
+      message: "A player accepted your party invite.",
+      payload: { partyId: party.id, memberUserId: userId },
+    });
 
     res.json({ success: true, party: await buildPartyResponse(party, userId) });
   } catch (err) {

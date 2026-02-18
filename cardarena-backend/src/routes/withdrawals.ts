@@ -12,12 +12,13 @@ import {
 import { AppError } from "../middleware/errorHandler";
 import { authMiddleware, AuthRequest } from "../middleware/auth";
 import { incMetric } from "../monitoring/metrics";
+import { createUserNotification } from "../lib/userComms";
 
 const router = Router();
 
 const MIN_WITHDRAWAL = 2500;
 const WITHDRAWAL_FEE = 500;
-const DAILY_LIMIT = 100000;
+const DAILY_LIMIT = 50000;
 const MONTHLY_LIMIT = 500000;
 
 router.post("/", authMiddleware, async (req: AuthRequest, res, next) => {
@@ -34,7 +35,13 @@ router.post("/", authMiddleware, async (req: AuthRequest, res, next) => {
 
     const user = await prisma.user.findUnique({
       where: { id: req.userId! },
-      select: { id: true, withdrawalBlocked: true, isFrozen: true },
+      select: {
+        id: true,
+        withdrawalBlocked: true,
+        isFrozen: true,
+        stripeAccountId: true,
+        stripeOnboarded: true,
+      },
     });
 
     if (!user) throw new AppError("User not found", 404);
@@ -43,6 +50,9 @@ router.post("/", authMiddleware, async (req: AuthRequest, res, next) => {
     }
     if (user.withdrawalBlocked) {
       throw new AppError("Withdrawals are blocked on this account", 403);
+    }
+    if (!user.stripeAccountId || !user.stripeOnboarded) {
+      throw new AppError("Complete Stripe payout verification before withdrawing funds.", 400);
     }
 
     await prisma.$transaction(async (tx) => {
@@ -200,6 +210,14 @@ router.post("/", authMiddleware, async (req: AuthRequest, res, next) => {
           balanceAfter: newBalance,
           reference: withdrawal.id,
         },
+      });
+
+      await createUserNotification(tx as any, {
+        userId: req.userId!,
+        type: "USER_WITHDRAWAL_INITIATED",
+        title: "Withdrawal Requested",
+        message: `A withdrawal request for $${(amount / 100).toFixed(2)} has been submitted.`,
+        payload: { amount, netAmount, autoHold: shouldAutoHold },
       });
     });
 
