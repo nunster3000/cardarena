@@ -1,24 +1,26 @@
 ﻿"use client";
 
 import { Space_Grotesk } from "next/font/google";
-import { useRouter } from "next/navigation";
 import { useState } from "react";
 
 const space = Space_Grotesk({ subsets: ["latin"] });
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:3000";
 
 export default function SignupPage() {
-  const router = useRouter();
   const [email, setEmail] = useState("");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
+  const [resending, setResending] = useState(false);
   const [error, setError] = useState("");
+  const [statusMessage, setStatusMessage] = useState("");
+  const [submitted, setSubmitted] = useState(false);
 
   async function handleSignup(e: React.FormEvent) {
     e.preventDefault();
     setLoading(true);
     setError("");
+    setStatusMessage("");
 
     try {
       const response = await fetch(`${API_BASE}/api/v1/auth/register`, {
@@ -32,12 +34,49 @@ export default function SignupPage() {
         throw new Error(body.error || "Unable to create account");
       }
 
-      router.push("/signup/pending");
+      setSubmitted(true);
+      setStatusMessage(
+        body.message ||
+          "Signup request received. Check your email for next steps."
+      );
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : "Signup failed";
-      setError(msg);
+      setError(err instanceof Error ? err.message : "Signup failed");
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function resendCode() {
+    if (!email.trim()) {
+      setError("Enter your email to resend the verification email link.");
+      return;
+    }
+
+    try {
+      setResending(true);
+      setError("");
+      const response = await fetch(`${API_BASE}/api/v1/auth/resend-admin-verification`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email }),
+      });
+
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(body.error || "Unable to resend verification email.");
+      }
+
+      setStatusMessage(
+        body.message || "If needed, a new verification email link has been sent."
+      );
+    } catch (err: unknown) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Unable to resend verification email."
+      );
+    } finally {
+      setResending(false);
     }
   }
 
@@ -93,14 +132,33 @@ export default function SignupPage() {
 
           <button
             disabled={loading}
-            className="mt-6 w-full rounded-xl bg-emerald-500 py-3 font-semibold text-black hover:bg-emerald-400"
+            className="mt-6 w-full rounded-xl bg-gradient-to-r from-cyan-300 via-emerald-300 to-blue-300 py-3 font-semibold text-slate-900 shadow-lg shadow-cyan-500/20 transition-all duration-300 hover:scale-[1.01] hover:from-fuchsia-300 hover:via-cyan-300 hover:to-emerald-300"
           >
             {loading ? "Creating account..." : "Sign Up Free"}
           </button>
 
           {error && <p className="mt-4 text-sm text-red-300">{error}</p>}
+          {statusMessage && <p className="mt-4 text-sm text-emerald-300">{statusMessage}</p>}
+
+          {submitted && (
+            <div className="mt-5 rounded-xl border border-white/20 bg-white/5 p-4">
+              <p className="text-sm text-white/80">Didn&apos;t get the verification email link yet?</p>
+              <button
+                type="button"
+                onClick={resendCode}
+                disabled={resending}
+                className="mt-2 rounded-lg bg-white/15 px-3 py-2 text-xs font-semibold text-white hover:bg-white/25 disabled:opacity-70"
+              >
+                {resending ? "Sending..." : "Resend Email"}
+              </button>
+            </div>
+          )}
+
           <p className="mt-6 text-xs text-gray-300">
-            Already have an account? <a href="/login" className="font-semibold text-emerald-300 hover:text-emerald-200">Login</a>
+            Already have an account?{" "}
+            <a href="/login" className="font-semibold text-emerald-300 hover:text-emerald-200">
+              Login
+            </a>
           </p>
         </form>
       </div>

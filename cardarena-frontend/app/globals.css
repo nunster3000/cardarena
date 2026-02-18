@@ -35,7 +35,6 @@ button {
   cursor: pointer;
   border: none;
   outline: none;
-  background: none;
 }
 
 @keyframes gradientShift {
@@ -67,5 +66,4 @@ button {
 .animate-shimmer {
   animation: shimmer 8s linear infinite;
 }
-
 
