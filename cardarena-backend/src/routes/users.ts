@@ -3,6 +3,7 @@ import { Router } from "express";
 import { prisma } from "../db";
 import { AppError } from "../middleware/errorHandler";
 import { authMiddleware, AuthRequest } from "../middleware/auth";
+import { createUserNotification } from "../lib/userComms";
 
 const router = Router();
 router.use(authMiddleware);
@@ -137,7 +138,10 @@ router.get("/me/notifications", async (req: AuthRequest, res, next) => {
   try {
     const take = Math.min(Number(req.query.take) || 50, 200);
     const notifications = await prisma.adminNotification.findMany({
-      where: { userId: req.userId! },
+      where: {
+        userId: req.userId!,
+        status: { not: "DISMISSED" },
+      },
       orderBy: { createdAt: "desc" },
       take,
     });
@@ -160,6 +164,28 @@ router.post("/me/notifications/:id/read", async (req: AuthRequest, res, next) =>
       where: { id: req.params.id },
       data: {
         status: "READ",
+        readAt: new Date(),
+      },
+    });
+    res.json({ success: true, notification });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post("/me/notifications/:id/dismiss", async (req: AuthRequest, res, next) => {
+  try {
+    const existing = await prisma.adminNotification.findUnique({
+      where: { id: req.params.id },
+      select: { id: true, userId: true },
+    });
+    if (!existing || existing.userId !== req.userId) {
+      throw new AppError("Notification not found", 404);
+    }
+    const notification = await prisma.adminNotification.update({
+      where: { id: req.params.id },
+      data: {
+        status: "DISMISSED",
         readAt: new Date(),
       },
     });
@@ -350,6 +376,27 @@ router.post("/friends/request", async (req: AuthRequest, res, next) => {
         status: FriendStatus.PENDING,
       },
     });
+    const fromUser = await prisma.user.findUnique({
+      where: { id: req.userId! },
+      select: { id: true, username: true },
+    });
+    const pendingRequest = await prisma.friend.findUnique({
+      where: { userId_friendId: { userId: req.userId!, friendId } },
+      select: { id: true },
+    });
+    if (fromUser && pendingRequest) {
+      await createUserNotification(prisma as any, {
+        userId: friendId,
+        type: "FRIEND_REQUEST",
+        title: "Friend Request",
+        message: `${fromUser.username} sent you a friend request.`,
+        payload: {
+          requestId: pendingRequest.id,
+          fromUserId: fromUser.id,
+          fromUsername: fromUser.username,
+        },
+      });
+    }
 
     res.json({ success: true, message: "Friend request sent" });
   } catch (err) {

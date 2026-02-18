@@ -46,6 +46,7 @@ type FlagRow = {
   reason: string;
   status: string;
   createdAt: string;
+  resolvedAt?: string | null;
   user?: { id: string; username?: string | null; email?: string | null } | null;
 };
 
@@ -165,7 +166,7 @@ export default function AdminDashboardPage() {
         apiRequest("/api/v1/admin/wallets/suspicious", authToken),
         apiRequest(`/api/v1/admin/games?status=${gameStatus}`, authToken),
         apiRequest("/api/v1/admin/settings/registrations", authToken),
-        apiRequest("/api/v1/admin/risk/flags?status=OPEN&take=50", authToken),
+        apiRequest("/api/v1/admin/risk/flags?status=ALL&take=100", authToken),
         apiRequest("/api/v1/admin/notifications?status=OPEN&take=50", authToken),
       ]);
 
@@ -499,7 +500,8 @@ export default function AdminDashboardPage() {
 
         {activeTab === "risk" && (
           <section className="mt-4 rounded-2xl border border-white/15 bg-black/35 p-4">
-            <h2 className="text-lg font-bold">Open Risk Flags</h2>
+            <h2 className="text-lg font-bold">Risk Flag History</h2>
+            <p className="mt-1 text-xs text-white/70">Complete history across all users, including resolved outcomes.</p>
             <div className="mt-3 overflow-x-auto">
               <table className="min-w-full text-sm">
                 <thead className="bg-white/10">
@@ -508,6 +510,9 @@ export default function AdminDashboardPage() {
                     <th className="px-3 py-2 text-left">Type</th>
                     <th className="px-3 py-2 text-left">Severity</th>
                     <th className="px-3 py-2 text-left">Reason</th>
+                    <th className="px-3 py-2 text-left">Status</th>
+                    <th className="px-3 py-2 text-left">Created</th>
+                    <th className="px-3 py-2 text-left">Resolved</th>
                     <th className="px-3 py-2 text-left">Action</th>
                   </tr>
                 </thead>
@@ -518,14 +523,21 @@ export default function AdminDashboardPage() {
                       <td className="px-3 py-2">{f.type}</td>
                       <td className="px-3 py-2">{f.severity}</td>
                       <td className="px-3 py-2">{f.reason}</td>
+                      <td className="px-3 py-2">{f.status}</td>
+                      <td className="px-3 py-2">{new Date(f.createdAt).toLocaleString()}</td>
+                      <td className="px-3 py-2">{f.resolvedAt ? new Date(f.resolvedAt).toLocaleString() : "-"}</td>
                       <td className="px-3 py-2">
-                        <button onClick={() => callAction(`/api/v1/admin/risk/flags/${f.id}/resolve`)} className="rounded-lg bg-emerald-500/25 px-3 py-1 text-xs hover:bg-emerald-500/40">Resolve</button>
+                        {f.status === "OPEN" ? (
+                          <button onClick={() => callAction(`/api/v1/admin/risk/flags/${f.id}/resolve`)} className="rounded-lg bg-emerald-500/25 px-3 py-1 text-xs hover:bg-emerald-500/40">Resolve</button>
+                        ) : (
+                          <span className="text-xs text-white/60">Resolved</span>
+                        )}
                       </td>
                     </tr>
                   ))}
                   {!flags.length && (
                     <tr>
-                      <td className="px-3 py-3 text-sm text-white/70" colSpan={5}>No open flags.</td>
+                      <td className="px-3 py-3 text-sm text-white/70" colSpan={8}>No flag history found.</td>
                     </tr>
                   )}
                 </tbody>

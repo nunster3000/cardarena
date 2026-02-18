@@ -113,6 +113,13 @@ type UserNotification = {
   message: string;
   status: string;
   createdAt: string;
+  payload?: {
+    requestId?: string;
+    inviteId?: string;
+    partyId?: string;
+    fromUserId?: string;
+    fromUsername?: string;
+  } | null;
 };
 
 type ComplianceFlag = {
@@ -413,6 +420,45 @@ export default function DashboardPage() {
       setMessage(action === "ACCEPT" ? "Joined party." : "Invite declined.");
     } catch (err: unknown) {
       setMessage(err instanceof Error ? err.message : "Unable to respond to invite");
+    }
+  }
+
+  async function dismissNotification(notificationId: string) {
+    try {
+      await api(`/api/v1/users/me/notifications/${notificationId}/dismiss`, { method: "POST" });
+      await loadAll();
+    } catch (err: unknown) {
+      setMessage(err instanceof Error ? err.message : "Unable to dismiss notification");
+    }
+  }
+
+  async function handleNotificationFriendRequest(notification: UserNotification, action: "accept" | "decline") {
+    try {
+      const requestId = notification.payload?.requestId;
+      if (!requestId) {
+        setMessage("Friend request details are unavailable.");
+        return;
+      }
+      const endpointAction = action === "accept" ? "accept" : "reject";
+      await friendAction(`/api/v1/users/friends/${requestId}/${endpointAction}`, "POST");
+      await dismissNotification(notification.id);
+      setMessage(action === "accept" ? "Friend request accepted." : "Friend request declined.");
+    } catch (err: unknown) {
+      setMessage(err instanceof Error ? err.message : "Unable to process friend request");
+    }
+  }
+
+  async function handleNotificationPartyInvite(notification: UserNotification, action: "ACCEPT" | "REJECT") {
+    try {
+      const inviteId = notification.payload?.inviteId;
+      if (!inviteId) {
+        setMessage("Party invite details are unavailable.");
+        return;
+      }
+      await respondPartyInvite(inviteId, action);
+      await dismissNotification(notification.id);
+    } catch (err: unknown) {
+      setMessage(err instanceof Error ? err.message : "Unable to process party invite");
     }
   }
 
@@ -774,6 +820,48 @@ export default function DashboardPage() {
                   <p className="text-sm font-semibold">{n.title}</p>
                   <p className="text-xs text-white/80">{n.message}</p>
                   <p className="mt-1 text-[11px] text-white/60">{new Date(n.createdAt).toLocaleString()} · {n.status}</p>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {n.type === "FRIEND_REQUEST" && n.payload?.requestId && (
+                      <>
+                        <button
+                          onClick={() => handleNotificationFriendRequest(n, "accept")}
+                          className="rounded bg-emerald-500/30 px-2 py-1 text-[11px] hover:bg-emerald-500/40"
+                        >
+                          Accept
+                        </button>
+                        <button
+                          onClick={() => handleNotificationFriendRequest(n, "decline")}
+                          className="rounded bg-red-500/30 px-2 py-1 text-[11px] hover:bg-red-500/40"
+                        >
+                          Decline
+                        </button>
+                      </>
+                    )}
+                    {n.type === "PARTY_INVITE" && n.payload?.inviteId && (
+                      <>
+                        <button
+                          onClick={() => handleNotificationPartyInvite(n, "ACCEPT")}
+                          className="rounded bg-emerald-500/30 px-2 py-1 text-[11px] hover:bg-emerald-500/40"
+                        >
+                          Join
+                        </button>
+                        <button
+                          onClick={() => handleNotificationPartyInvite(n, "REJECT")}
+                          className="rounded bg-white/15 px-2 py-1 text-[11px] hover:bg-white/25"
+                        >
+                          Ignore
+                        </button>
+                      </>
+                    )}
+                    {n.type !== "FRIEND_REQUEST" && n.type !== "PARTY_INVITE" && (
+                      <button
+                        onClick={() => dismissNotification(n.id)}
+                        className="rounded bg-white/15 px-2 py-1 text-[11px] hover:bg-white/25"
+                      >
+                        Dismiss
+                      </button>
+                    )}
+                  </div>
                 </div>
               ))}
               {!notifications.length && <p className="text-xs text-white/65">No notifications yet.</p>}

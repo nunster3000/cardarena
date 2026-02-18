@@ -5,6 +5,7 @@ const express_1 = require("express");
 const db_1 = require("../db");
 const errorHandler_1 = require("../middleware/errorHandler");
 const auth_1 = require("../middleware/auth");
+const userComms_1 = require("../lib/userComms");
 const router = (0, express_1.Router)();
 router.use(auth_1.authMiddleware);
 router.get("/online/count", async (_req, res, next) => {
@@ -129,7 +130,10 @@ router.get("/me/notifications", async (req, res, next) => {
     try {
         const take = Math.min(Number(req.query.take) || 50, 200);
         const notifications = await db_1.prisma.adminNotification.findMany({
-            where: { userId: req.userId },
+            where: {
+                userId: req.userId,
+                status: { not: "DISMISSED" },
+            },
             orderBy: { createdAt: "desc" },
             take,
         });
@@ -152,6 +156,28 @@ router.post("/me/notifications/:id/read", async (req, res, next) => {
             where: { id: req.params.id },
             data: {
                 status: "READ",
+                readAt: new Date(),
+            },
+        });
+        res.json({ success: true, notification });
+    }
+    catch (err) {
+        next(err);
+    }
+});
+router.post("/me/notifications/:id/dismiss", async (req, res, next) => {
+    try {
+        const existing = await db_1.prisma.adminNotification.findUnique({
+            where: { id: req.params.id },
+            select: { id: true, userId: true },
+        });
+        if (!existing || existing.userId !== req.userId) {
+            throw new errorHandler_1.AppError("Notification not found", 404);
+        }
+        const notification = await db_1.prisma.adminNotification.update({
+            where: { id: req.params.id },
+            data: {
+                status: "DISMISSED",
                 readAt: new Date(),
             },
         });
@@ -333,6 +359,27 @@ router.post("/friends/request", async (req, res, next) => {
                 status: client_1.FriendStatus.PENDING,
             },
         });
+        const fromUser = await db_1.prisma.user.findUnique({
+            where: { id: req.userId },
+            select: { id: true, username: true },
+        });
+        const pendingRequest = await db_1.prisma.friend.findUnique({
+            where: { userId_friendId: { userId: req.userId, friendId } },
+            select: { id: true },
+        });
+        if (fromUser && pendingRequest) {
+            await (0, userComms_1.createUserNotification)(db_1.prisma, {
+                userId: friendId,
+                type: "FRIEND_REQUEST",
+                title: "Friend Request",
+                message: `${fromUser.username} sent you a friend request.`,
+                payload: {
+                    requestId: pendingRequest.id,
+                    fromUserId: fromUser.id,
+                    fromUsername: fromUser.username,
+                },
+            });
+        }
         res.json({ success: true, message: "Friend request sent" });
     }
     catch (err) {
