@@ -195,16 +195,18 @@ export default function DashboardPage() {
 
   const topFriends = useMemo(() => friends.filter((f) => f.isTop), [friends]);
   const walletBalance = Number(me?.wallet?.balance || 0);
-  const depositCents = Number(depositAmount || 0);
-  const withdrawCents = Number(withdrawAmount || 0);
+  const depositDollars = Number(depositAmount || 0);
+  const withdrawDollars = Number(withdrawAmount || 0);
+  const depositCents = Math.round(depositDollars * 100);
+  const withdrawCents = Math.round(withdrawDollars * 100);
   const depositInvalid =
     !depositAmount ||
-    Number.isNaN(depositCents) ||
+    Number.isNaN(depositDollars) ||
     depositCents < 1000 ||
     depositCents > DAILY_DEPOSIT_LIMIT_CENTS;
   const withdrawInvalid =
     !withdrawAmount ||
-    Number.isNaN(withdrawCents) ||
+    Number.isNaN(withdrawDollars) ||
     withdrawCents < 2500 ||
     withdrawCents > DAILY_WITHDRAW_LIMIT_CENTS ||
     withdrawCents > walletBalance;
@@ -708,12 +710,16 @@ export default function DashboardPage() {
                 value={depositAmount}
                 onChange={(e) => setDepositAmount(e.target.value)}
                 type="number"
-                min={1000}
-                max={DAILY_DEPOSIT_LIMIT_CENTS}
+                step="0.01"
+                min={10}
+                max={DAILY_DEPOSIT_LIMIT_CENTS / 100}
                 className="w-full rounded-lg bg-white/10 px-3 py-2 text-sm ring-1 ring-white/20 outline-none"
-                placeholder="Deposit amount (cents)"
+                placeholder="Deposit amount ($)"
               />
               <p className="text-[11px] text-white/50">Daily deposit max: $500.00</p>
+              {depositAmount && depositInvalid && (
+                <p className="text-[11px] text-amber-300">Enter a valid amount between $10.00 and $500.00.</p>
+              )}
               <button
                 onClick={deposit}
                 disabled={depositInvalid}
@@ -725,12 +731,16 @@ export default function DashboardPage() {
                 value={withdrawAmount}
                 onChange={(e) => setWithdrawAmount(e.target.value)}
                 type="number"
-                min={2500}
-                max={DAILY_WITHDRAW_LIMIT_CENTS}
+                step="0.01"
+                min={25}
+                max={DAILY_WITHDRAW_LIMIT_CENTS / 100}
                 className="w-full rounded-lg bg-white/10 px-3 py-2 text-sm ring-1 ring-white/20 outline-none"
-                placeholder="Withdraw amount (cents)"
+                placeholder="Withdraw amount ($)"
               />
               <p className="text-[11px] text-white/50">Daily withdrawal max: $500.00 · Available now: ${(walletBalance / 100).toFixed(2)}</p>
+              {withdrawAmount && withdrawInvalid && (
+                <p className="text-[11px] text-amber-300">Enter at least $25.00 and no more than your available balance or $500.00 daily.</p>
+              )}
               <button
                 onClick={withdraw}
                 disabled={withdrawInvalid || !stripeReady}
