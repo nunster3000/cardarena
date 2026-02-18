@@ -68,6 +68,50 @@ function validatePassword(password: string, username: string) {
   };
 }
 
+function parseDateOfBirth(value: unknown) {
+  const raw = String(value || "").trim();
+  if (!raw) throw new AppError("Date of birth is required", 400);
+  const dob = new Date(raw);
+  if (Number.isNaN(dob.getTime())) {
+    throw new AppError("Date of birth is invalid", 400);
+  }
+
+  const now = new Date();
+  if (dob > now) {
+    throw new AppError("Date of birth cannot be in the future", 400);
+  }
+
+  let age = now.getUTCFullYear() - dob.getUTCFullYear();
+  const monthDiff = now.getUTCMonth() - dob.getUTCMonth();
+  if (monthDiff < 0 || (monthDiff === 0 && now.getUTCDate() < dob.getUTCDate())) {
+    age--;
+  }
+
+  if (age < 18) {
+    throw new AppError("You must be at least 18 years old to register", 400);
+  }
+
+  return dob;
+}
+
+function parseCountryCode(value: unknown) {
+  const countryCode = String(value || "").trim().toUpperCase();
+  if (!countryCode) throw new AppError("Country is required", 400);
+  if (!/^[A-Z]{2}$/.test(countryCode)) {
+    throw new AppError("Country must be a 2-letter ISO code (example: US)", 400);
+  }
+  return countryCode;
+}
+
+function parseRegion(value: unknown) {
+  const region = String(value || "").trim();
+  if (!region) throw new AppError("State/region is required", 400);
+  if (region.length > 120) {
+    throw new AppError("State/region is too long", 400);
+  }
+  return region;
+}
+
 /**
  * POST /auth/register
  */
@@ -83,10 +127,10 @@ router.post("/register", async (req, res, next) => {
       throw new AppError("Registrations are temporarily closed", 403);
     }
 
-    const { email, username, password } = req.body;
+    const { email, username, password, dateOfBirth, countryCode, region } = req.body;
 
-    if (!email || !username || !password) {
-      throw new AppError("email, username, and password required", 400);
+    if (!email || !username || !password || !dateOfBirth || !countryCode || !region) {
+      throw new AppError("email, username, password, dateOfBirth, countryCode, and region are required", 400);
     }
 
     const passwordValidation = validatePassword(String(password), String(username));
@@ -98,6 +142,9 @@ router.post("/register", async (req, res, next) => {
     }
 
     const normalizedEmail = String(email).trim().toLowerCase();
+    const parsedDateOfBirth = parseDateOfBirth(dateOfBirth);
+    const parsedCountryCode = parseCountryCode(countryCode);
+    const parsedRegion = parseRegion(region);
     const isInternalAdmin = normalizedEmail.endsWith(`@${ADMIN_EMAIL_DOMAIN}`);
 
     const hashedPassword = await bcrypt.hash(password, 10);
@@ -111,6 +158,9 @@ router.post("/register", async (req, res, next) => {
           email: normalizedEmail,
           username,
           password: hashedPassword,
+          dateOfBirth: parsedDateOfBirth,
+          countryCode: parsedCountryCode,
+          region: parsedRegion,
           role: Role.USER,
           signupStatus: SignupStatus.PENDING,
           signupRequestedAt: new Date(),

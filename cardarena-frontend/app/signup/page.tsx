@@ -10,6 +10,9 @@ export default function SignupPage() {
   const [email, setEmail] = useState("");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [dateOfBirth, setDateOfBirth] = useState("");
+  const [countryCode, setCountryCode] = useState("US");
+  const [region, setRegion] = useState("");
   const [loading, setLoading] = useState(false);
   const [resending, setResending] = useState(false);
   const [error, setError] = useState("");
@@ -36,7 +39,14 @@ export default function SignupPage() {
       const response = await fetch(`${API_BASE}/api/v1/auth/register`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, username, password }),
+        body: JSON.stringify({
+          email,
+          username,
+          password,
+          dateOfBirth,
+          countryCode: countryCode.trim().toUpperCase(),
+          region,
+        }),
       });
 
       const body = await response.json().catch(() => ({}));
@@ -148,8 +158,48 @@ export default function SignupPage() {
             <p className={passwordChecks.notSameAsUsername ? "text-emerald-300" : "text-white/70"}>{passwordChecks.notSameAsUsername ? "✓" : "○"} Cannot match username</p>
           </div>
 
+          <label className="mt-4 block text-sm text-white/70">Date of Birth</label>
+          <input
+            type="date"
+            className="mt-1 w-full rounded-xl bg-white/10 px-4 py-3 outline-none ring-1 ring-white/20 focus:ring-emerald-400"
+            value={dateOfBirth}
+            onChange={(e) => setDateOfBirth(e.target.value)}
+            required
+          />
+
+          <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div>
+              <label className="block text-sm text-white/70">Country Code</label>
+              <input
+                className="mt-1 w-full rounded-xl bg-white/10 px-4 py-3 uppercase outline-none ring-1 ring-white/20 focus:ring-emerald-400"
+                value={countryCode}
+                onChange={(e) => setCountryCode(e.target.value.slice(0, 2).toUpperCase())}
+                required
+                minLength={2}
+                maxLength={2}
+                placeholder="US"
+              />
+            </div>
+            <div>
+              <label className="block text-sm text-white/70">State / Region</label>
+              <input
+                className="mt-1 w-full rounded-xl bg-white/10 px-4 py-3 outline-none ring-1 ring-white/20 focus:ring-emerald-400"
+                value={region}
+                onChange={(e) => setRegion(e.target.value)}
+                required
+                placeholder="Georgia"
+              />
+            </div>
+          </div>
+
           <button
-            disabled={loading || !passwordValid}
+            disabled={
+              loading ||
+              !passwordValid ||
+              !dateOfBirth ||
+              countryCode.trim().length !== 2 ||
+              !region.trim()
+            }
             className="mt-6 w-full rounded-xl bg-gradient-to-r from-cyan-300 via-emerald-300 to-blue-300 py-3 font-semibold text-slate-900 shadow-lg shadow-cyan-500/20 transition-all duration-300 hover:scale-[1.01] hover:from-fuchsia-300 hover:via-cyan-300 hover:to-emerald-300"
           >
             {loading ? "Creating account..." : "Sign Up Free"}
