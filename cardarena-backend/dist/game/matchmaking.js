@@ -5,6 +5,7 @@ const db_1 = require("../db");
 const engine_1 = require("./engine");
 const waitingQueues = {};
 // key = entryFee, value = array of userIds
+const pendingCallbacks = new Map();
 async function joinQueue(userId, entryFee, onMatch) {
     const user = await db_1.prisma.user.findUnique({
         where: { id: userId },
@@ -20,6 +21,7 @@ async function joinQueue(userId, entryFee, onMatch) {
         throw new Error("Wallet is frozen");
     if (!waitingQueues[entryFee])
         waitingQueues[entryFee] = [];
+    pendingCallbacks.set(userId, onMatch);
     // prevent duplicates
     if (waitingQueues[entryFee].includes(userId))
         return;
@@ -27,7 +29,13 @@ async function joinQueue(userId, entryFee, onMatch) {
     if (waitingQueues[entryFee].length >= 4) {
         const players = waitingQueues[entryFee].splice(0, 4);
         const { game } = await createTournamentWithPlayers(players, entryFee);
-        await onMatch({ gameId: game.id, playerIds: players });
+        for (const pid of players) {
+            const cb = pendingCallbacks.get(pid);
+            if (!cb)
+                continue;
+            await cb({ gameId: game.id, playerIds: players });
+            pendingCallbacks.delete(pid);
+        }
     }
 }
 async function createTournamentWithPlayers(players, entryFee) {

@@ -5,6 +5,7 @@ type MatchCallback = (data: { gameId: string; playerIds: string[] }) => Promise<
 
 const waitingQueues: Record<number, string[]> = {};
 // key = entryFee, value = array of userIds
+const pendingCallbacks = new Map<string, MatchCallback>();
 
 export async function joinQueue(
   userId: string,
@@ -22,6 +23,7 @@ export async function joinQueue(
   if (user.wallet.isFrozen) throw new Error("Wallet is frozen");
 
   if (!waitingQueues[entryFee]) waitingQueues[entryFee] = [];
+  pendingCallbacks.set(userId, onMatch);
 
   // prevent duplicates
   if (waitingQueues[entryFee].includes(userId)) return;
@@ -31,8 +33,12 @@ export async function joinQueue(
   if (waitingQueues[entryFee].length >= 4) {
     const players = waitingQueues[entryFee].splice(0, 4);
     const { game } = await createTournamentWithPlayers(players, entryFee);
-
-    await onMatch({ gameId: game.id, playerIds: players });
+    for (const pid of players) {
+      const cb = pendingCallbacks.get(pid);
+      if (!cb) continue;
+      await cb({ gameId: game.id, playerIds: players });
+      pendingCallbacks.delete(pid);
+    }
   }
 }
 

@@ -245,7 +245,7 @@ export default function AdminDashboardPage() {
   function logout() {
     clearSession();
     setToken("");
-    router.replace("/login");
+    router.replace("/");
   }
 
   function switchToPlayerView() {

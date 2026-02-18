@@ -106,12 +106,10 @@ export function registerGameSockets(io: Server) {
       }
 
       try {
-        await joinQueue(userId, entryFee, async ({ gameId, playerIds }) => {
-          for (const pid of playerIds) {
-            const sid = userSockets.get(pid);
-            if (sid) {
-              io.to(sid).emit("match_found", { gameId });
-            }
+        await joinQueue(userId, entryFee, async ({ gameId }) => {
+          const sid = userSockets.get(userId);
+          if (sid) {
+            io.to(sid).emit("match_found", { gameId });
           }
         });
       } catch (err: any) {

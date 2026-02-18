@@ -113,12 +113,10 @@ function registerGameSockets(io) {
                 return socket.emit("error", { message: "Rate limit exceeded" });
             }
             try {
-                await (0, matchmaking_1.joinQueue)(userId, entryFee, async ({ gameId, playerIds }) => {
-                    for (const pid of playerIds) {
-                        const sid = userSockets.get(pid);
-                        if (sid) {
-                            io.to(sid).emit("match_found", { gameId });
-                        }
+                await (0, matchmaking_1.joinQueue)(userId, entryFee, async ({ gameId }) => {
+                    const sid = userSockets.get(userId);
+                    if (sid) {
+                        io.to(sid).emit("match_found", { gameId });
                     }
                 });
             }

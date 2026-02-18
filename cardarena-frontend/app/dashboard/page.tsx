@@ -44,6 +44,47 @@ type TournamentRow = {
   totalPrize: number;
 };
 
+type QueueMode = "RANDOMS" | "FRIENDS" | "BOTS";
+
+type PartyMember = {
+  userId: string;
+  isReady: boolean;
+  isLeader: boolean;
+  user: {
+    id: string;
+    username: string;
+    avatarPreset?: string | null;
+    avatarUrl?: string | null;
+    isOnline: boolean;
+  } | null;
+};
+
+type PartyState = {
+  id: string;
+  leaderId: string;
+  isLeader: boolean;
+  queue: {
+    status: "IDLE" | "SEARCHING" | "MATCHED";
+    entryFee: number | null;
+    startedAt: string | null;
+    matchGameId: string | null;
+  };
+  members: PartyMember[];
+};
+
+type PartyInvite = {
+  id: string;
+  partyId: string;
+  createdAt: string;
+  from: {
+    id: string;
+    username: string;
+    avatarPreset?: string | null;
+    avatarUrl?: string | null;
+    isOnline: boolean;
+  } | null;
+};
+
 type LedgerEntry = {
   id: string;
   type: string;
@@ -79,8 +120,15 @@ export default function DashboardPage() {
   const [bio, setBio] = useState("");
   const [uploading, setUploading] = useState(false);
   const [isAdminAccount, setIsAdminAccount] = useState(false);
+  const [queueingTableId, setQueueingTableId] = useState<string | null>(null);
+  const [queueSeconds, setQueueSeconds] = useState(0);
+  const [freeQueueMode, setFreeQueueMode] = useState<QueueMode>("RANDOMS");
+  const [party, setParty] = useState<PartyState | null>(null);
+  const [partyInvites, setPartyInvites] = useState<PartyInvite[]>([]);
+  const [partyInviteTarget, setPartyInviteTarget] = useState("");
 
   const topFriends = useMemo(() => friends.filter((f) => f.isTop), [friends]);
+  const walletBalance = Number(me?.wallet?.balance || 0);
 
   async function api(path: string, init: RequestInit = {}) {
     const res = await fetch(`${API_BASE}${path}`, {
@@ -97,12 +145,13 @@ export default function DashboardPage() {
   }
 
   async function loadAll() {
-    const [meData, online, friendData, tournamentData, ledgerData] = await Promise.all([
+    const [meData, online, friendData, tournamentData, ledgerData, partyData] = await Promise.all([
       api("/api/v1/users/me"),
       api("/api/v1/users/online/count"),
       api("/api/v1/users/friends"),
       api("/api/v1/tournaments"),
       api("/api/v1/users/me/ledger?take=15"),
+      api("/api/v1/party/me"),
     ]);
 
     setMe(meData);
@@ -112,6 +161,8 @@ export default function DashboardPage() {
     setIncoming(friendData.incomingRequests || []);
     setTournaments(tournamentData.data || []);
     setLedger(ledgerData.entries || []);
+    setParty(partyData.party || null);
+    setPartyInvites(partyData.pendingInvites || []);
   }
 
   useEffect(() => {
@@ -221,9 +272,106 @@ export default function DashboardPage() {
     }
   }
 
+  async function partyAction(path: string, body: object = {}) {
+    const result = await api(path, {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
+    await loadAll();
+    return result;
+  }
+
+  async function createParty() {
+    try {
+      await partyAction("/api/v1/party/create");
+      setMessage("Party created.");
+    } catch (err: unknown) {
+      setMessage(err instanceof Error ? err.message : "Unable to create party");
+    }
+  }
+
+  async function inviteToParty(friendId: string) {
+    try {
+      await partyAction("/api/v1/party/invite", { friendId });
+      setMessage("Party invite sent.");
+      setPartyInviteTarget("");
+    } catch (err: unknown) {
+      setMessage(err instanceof Error ? err.message : "Unable to invite player");
+    }
+  }
+
+  async function respondPartyInvite(inviteId: string, action: "ACCEPT" | "REJECT") {
+    try {
+      await partyAction(`/api/v1/party/invites/${inviteId}/respond`, { action });
+      setMessage(action === "ACCEPT" ? "Joined party." : "Invite declined.");
+    } catch (err: unknown) {
+      setMessage(err instanceof Error ? err.message : "Unable to respond to invite");
+    }
+  }
+
+  async function togglePartyReady(isReady: boolean) {
+    try {
+      await partyAction("/api/v1/party/ready", { isReady });
+    } catch (err: unknown) {
+      setMessage(err instanceof Error ? err.message : "Unable to update readiness");
+    }
+  }
+
+  async function leaveParty() {
+    try {
+      await partyAction("/api/v1/party/leave");
+      setMessage("Left party.");
+    } catch (err: unknown) {
+      setMessage(err instanceof Error ? err.message : "Unable to leave party");
+    }
+  }
+
+  async function kickPartyMember(userId: string) {
+    try {
+      await partyAction("/api/v1/party/kick", { userId });
+      setMessage("Player removed from party.");
+    } catch (err: unknown) {
+      setMessage(err instanceof Error ? err.message : "Unable to remove player");
+    }
+  }
+
+  async function queuePartyForFreeTable() {
+    try {
+      await partyAction("/api/v1/party/queue", { entryFee: 0 });
+      setQueueingTableId("free");
+      setQueueSeconds(0);
+      setMessage("Party queue started for Free Table.");
+    } catch (err: unknown) {
+      setMessage(err instanceof Error ? err.message : "Unable to queue party");
+    }
+  }
+
+  async function cancelPartyQueue() {
+    try {
+      await partyAction("/api/v1/party/queue/cancel");
+      setQueueingTableId(null);
+      setQueueSeconds(0);
+      setMessage("Party queue canceled.");
+    } catch (err: unknown) {
+      setMessage(err instanceof Error ? err.message : "Unable to cancel party queue");
+    }
+  }
+
+  function startFreeQueue() {
+    setQueueingTableId("free");
+    setQueueSeconds(0);
+    setMessage("Searching free table...");
+  }
+
+  function cancelQueue() {
+    setQueueingTableId(null);
+    setQueueSeconds(0);
+    setMessage("Match search canceled.");
+  }
+
   function logout() {
     clearSession();
-    router.replace("/login");
+    router.replace("/");
   }
 
   function switchToAdmin() {
@@ -234,6 +382,63 @@ export default function DashboardPage() {
   const avatar =
     me?.avatarUrl ||
     (me?.avatarPreset ? null : null);
+
+  const freeTournament = tournaments.find((t) => t.entryFee === 0 && t.status === "OPEN");
+  const canUseFriendsMode = Boolean(party && party.members.length > 1);
+  const freeFriendsModeBlocked = freeQueueMode === "FRIENDS" && !canUseFriendsMode;
+  const paidTableFees = [1000, 2000, 5000];
+  const paidTables = paidTableFees.map((fee) => {
+    const tournament =
+      tournaments.find((t) => t.entryFee === fee && t.status === "OPEN") ||
+      tournaments.find((t) => t.entryFee === fee) ||
+      null;
+
+    const canAfford = walletBalance >= fee;
+    const isOpen = tournament?.status === "OPEN";
+
+    return {
+      key: `paid-${fee}`,
+      label: `$${(fee / 100).toFixed(0)} Table`,
+      fee,
+      tournamentId: tournament?.id ?? null,
+      status: tournament?.status ?? "COMING_SOON",
+      canJoin: Boolean(tournament?.id && isOpen && canAfford),
+      disabledReason: !tournament?.id
+        ? "Coming soon"
+        : !canAfford
+          ? "Insufficient balance"
+          : !isOpen
+            ? "Unavailable"
+            : "",
+    };
+  });
+
+  useEffect(() => {
+    if (!queueingTableId) return;
+    const timer = setInterval(() => {
+      setQueueSeconds((prev) => prev + 1);
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [queueingTableId]);
+
+  useEffect(() => {
+    if (queueingTableId !== "free") return;
+    if (queueSeconds === 15) {
+      setMessage("No live opponents found in 15s. Filling open seats with bots now.");
+    }
+  }, [queueSeconds, queueingTableId]);
+
+  useEffect(() => {
+    if (!party) return;
+    if (party.queue.status === "MATCHED" && party.queue.matchGameId) {
+      setQueueingTableId(null);
+      setQueueSeconds(0);
+      setMessage(`Party match found. Game ID: ${party.queue.matchGameId}`);
+    }
+    if (party.queue.status === "SEARCHING") {
+      setQueueingTableId("free");
+    }
+  }, [party]);
 
   return (
     <main className={`${space.className} relative min-h-screen overflow-hidden text-white`}>
@@ -430,21 +635,212 @@ export default function DashboardPage() {
         <section className="mt-4 grid gap-4 lg:grid-cols-3">
           <div className="rounded-2xl border border-white/15 bg-black/35 p-4 lg:col-span-2">
             <h2 className="text-lg font-bold">Tournament Tables</h2>
-            <p className="text-xs text-white/70">
-              Available entry tiers: $10, $20, $50 and more.
-            </p>
-            <div className="mt-3 grid gap-3 md:grid-cols-3">
-              {tournaments.map((t) => (
-                <div key={t.id} className="rounded-xl border border-white/15 bg-white/5 p-3">
-                  <p className="text-sm font-semibold">${(t.entryFee / 100).toFixed(0)} Table</p>
-                  <p className="text-xs text-white/70">Status: {t.status}</p>
-                  <p className="text-xs text-white/70">Prize: ${(t.totalPrize / 100).toFixed(2)}</p>
+            <p className="text-xs text-white/70">Pick a table and queue into a live match.</p>
+            <div className="mt-3 rounded-xl border border-cyan-300/30 bg-white/5 p-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <h3 className="text-sm font-semibold">Party Lobby</h3>
+                {!party ? (
                   <button
-                    onClick={() => joinTournament(t.id)}
-                    disabled={t.status !== "OPEN"}
-                    className="mt-2 rounded-lg bg-emerald-500 px-3 py-1 text-sm font-semibold text-black disabled:opacity-50"
+                    onClick={createParty}
+                    className="rounded-lg bg-[linear-gradient(110deg,#22d3ee,#60a5fa,#34d399)] bg-[length:200%_200%] px-3 py-1 text-xs font-semibold text-slate-950 transition-all duration-300 hover:bg-[position:100%_0%]"
                   >
-                    {t.status === "OPEN" ? "Join Table" : "Unavailable"}
+                    Create Party
+                  </button>
+                ) : (
+                  <button onClick={leaveParty} className="rounded-lg bg-white/15 px-3 py-1 text-xs hover:bg-white/25">
+                    {party.isLeader && party.members.length > 1 ? "Disband/Leave" : "Leave Party"}
+                  </button>
+                )}
+              </div>
+
+              {party ? (
+                <div className="mt-3 space-y-2">
+                  <p className="text-xs text-white/70">
+                    Leader:{" "}
+                    <span className="font-semibold text-emerald-300">
+                      {party.members.find((m) => m.isLeader)?.user?.username || "Unknown"}
+                    </span>
+                  </p>
+                  <div className="space-y-1">
+                    {party.members.map((m) => (
+                      <div key={m.userId} className="flex items-center justify-between rounded-lg bg-white/10 px-2 py-1 text-xs">
+                        <span>
+                          {m.user?.username || "Player"} {m.isLeader ? "(Leader)" : ""}
+                        </span>
+                        <div className="flex items-center gap-2">
+                          <span className={m.isReady ? "text-emerald-300" : "text-amber-300"}>
+                            {m.isReady ? "Ready" : "Not Ready"}
+                          </span>
+                          {m.userId === me?.id && (
+                            <button
+                              onClick={() => togglePartyReady(!m.isReady)}
+                              className="rounded bg-white/15 px-2 py-0.5 hover:bg-white/25"
+                            >
+                              {m.isReady ? "Unready" : "Ready"}
+                            </button>
+                          )}
+                          {party.isLeader && m.userId !== me?.id && (
+                            <button
+                              onClick={() => kickPartyMember(m.userId)}
+                              className="rounded bg-red-500/30 px-2 py-0.5 hover:bg-red-500/40"
+                            >
+                              Kick
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  {party.isLeader && (
+                    <div className="flex flex-wrap gap-2">
+                      <select
+                        value={partyInviteTarget}
+                        onChange={(e) => setPartyInviteTarget(e.target.value)}
+                        className="min-w-44 rounded-lg bg-white/10 px-2 py-1 text-xs ring-1 ring-white/20 outline-none"
+                      >
+                        <option value="">Invite a friend...</option>
+                        {friends
+                          .filter((f) => !party.members.some((m) => m.userId === f.id))
+                          .map((f) => (
+                            <option key={f.id} value={f.id}>
+                              {f.username}
+                            </option>
+                          ))}
+                      </select>
+                      <button
+                        disabled={!partyInviteTarget}
+                        onClick={() => partyInviteTarget && inviteToParty(partyInviteTarget)}
+                        className="rounded bg-white/15 px-3 py-1 text-xs hover:bg-white/25 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        Send Invite
+                      </button>
+                      {party.queue.status === "SEARCHING" ? (
+                        <button
+                          onClick={cancelPartyQueue}
+                          className="rounded bg-red-500/30 px-3 py-1 text-xs hover:bg-red-500/40"
+                        >
+                          Cancel Party Queue
+                        </button>
+                      ) : null}
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <p className="mt-2 text-xs text-white/70">Create a party to queue with friends. Party leader controls queue.</p>
+              )}
+
+              {partyInvites.length > 0 && (
+                <div className="mt-3 space-y-1">
+                  <p className="text-xs font-semibold">Party Invites</p>
+                  {partyInvites.map((inv) => (
+                    <div key={inv.id} className="flex items-center justify-between rounded bg-white/10 px-2 py-1 text-xs">
+                      <span>{inv.from?.username || "Player"} invited you</span>
+                      <div className="flex gap-2">
+                        <button onClick={() => respondPartyInvite(inv.id, "ACCEPT")} className="rounded bg-emerald-500/30 px-2 py-0.5">
+                          Accept
+                        </button>
+                        <button onClick={() => respondPartyInvite(inv.id, "REJECT")} className="rounded bg-red-500/30 px-2 py-0.5">
+                          Decline
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div className="mt-3 grid gap-3 md:grid-cols-2">
+              <div className="rounded-xl border border-emerald-300/30 bg-white/5 p-4">
+                <p className="text-xs font-semibold uppercase tracking-wide text-emerald-300">Play For Fun!</p>
+                <p className="mt-1 text-base font-bold">Free Table</p>
+                <p className="mt-1 text-xs text-white/70">
+                  Active/Waiting players: <span className="font-semibold text-emerald-300">{onlinePlayers}</span>
+                </p>
+                <div className="mt-2 rounded-lg border border-white/15 bg-white/5 p-2 text-xs text-white/75">
+                  <p>Queue mode:</p>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {(["RANDOMS", "FRIENDS", "BOTS"] as QueueMode[]).map((mode) => (
+                      <button
+                        key={mode}
+                        onClick={() => setFreeQueueMode(mode)}
+                        className={`rounded-md px-2 py-1 ${freeQueueMode === mode ? "bg-emerald-500/35 text-white" : "bg-white/10 text-white/80 hover:bg-white/20"}`}
+                      >
+                        {mode === "RANDOMS" ? "Randoms" : mode === "FRIENDS" ? "Invite Friends" : "Bots"}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className="mt-3 flex items-center justify-between">
+                  <p className="text-xs text-white/70">
+                    {queueingTableId === "free"
+                      ? `Searching... ${queueSeconds}s`
+                      : "Bots auto-fill open seats after 15s."}
+                  </p>
+                  {queueingTableId === "free" ? (
+                    <button
+                      onClick={() => {
+                        if (freeQueueMode === "FRIENDS" && party?.isLeader) {
+                          cancelPartyQueue();
+                          return;
+                        }
+                        cancelQueue();
+                      }}
+                      className="rounded-lg border border-white/20 bg-white/10 px-3 py-2 text-xs font-semibold text-white hover:bg-white/20"
+                    >
+                      Cancel
+                    </button>
+                  ) : (
+                    <button
+                      disabled={freeFriendsModeBlocked}
+                      onClick={() => {
+                        if (freeQueueMode === "FRIENDS") {
+                          if (!party) {
+                            setMessage("Create a party first, then invite friends.");
+                            return;
+                          }
+                          if (!party.isLeader) {
+                            setMessage("Only the party leader can queue the party.");
+                            return;
+                          }
+                          queuePartyForFreeTable();
+                          return;
+                        }
+                        if (freeTournament?.id) {
+                          joinTournament(freeTournament.id);
+                          return;
+                        }
+                        startFreeQueue();
+                      }}
+                      className="rounded-lg bg-[linear-gradient(110deg,#22d3ee,#60a5fa,#34d399)] bg-[length:200%_200%] px-4 py-2 text-sm font-semibold text-slate-950 transition-all duration-300 hover:scale-[1.02] hover:bg-[position:100%_0%] disabled:cursor-not-allowed disabled:bg-none disabled:bg-slate-500/50 disabled:text-slate-200"
+                    >
+                      Join Free Table
+                    </button>
+                  )}
+                </div>
+                {freeFriendsModeBlocked && (
+                  <p className="mt-2 text-xs text-amber-300">Create a party with at least one friend to use Invite Friends mode.</p>
+                )}
+                {freeQueueMode === "FRIENDS" && party && (
+                  <p className="mt-2 text-xs text-cyan-300">
+                    Party status: {party.queue.status}
+                    {party.queue.matchGameId ? ` | Match ID: ${party.queue.matchGameId}` : ""}
+                  </p>
+                )}
+              </div>
+
+              {paidTables.map((t) => (
+                <div key={t.key} className="rounded-xl border border-white/15 bg-white/5 p-4">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-white/70">Competitive</p>
+                  <p className="mt-1 text-base font-bold">{t.label}</p>
+                  <p className="mt-1 text-xs text-white/70">
+                    Active/Waiting players: <span className="font-semibold text-emerald-300">{onlinePlayers}</span>
+                  </p>
+                  <p className="mt-1 text-xs text-white/70">Status: {t.status}</p>
+                  <button
+                    onClick={() => t.tournamentId && joinTournament(t.tournamentId)}
+                    disabled={!t.canJoin}
+                    className="mt-3 w-full rounded-lg bg-[linear-gradient(110deg,#22d3ee,#60a5fa,#34d399)] bg-[length:200%_200%] px-3 py-2 text-sm font-semibold text-slate-950 transition-all duration-300 hover:scale-[1.01] hover:bg-[position:100%_0%] disabled:cursor-not-allowed disabled:bg-none disabled:bg-slate-500/50 disabled:text-slate-200"
+                  >
+                    {t.canJoin ? "Join Table" : t.disabledReason}
                   </button>
                 </div>
               ))}
