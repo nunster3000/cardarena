@@ -3,7 +3,7 @@ import { GamePhase } from "@prisma/client";
 
 export interface CardState {
   suit: string;
-  rank: string;
+  rank: string | number;
 }
 
 export interface TrickCard extends CardState {
@@ -19,7 +19,7 @@ export interface GameState {
   bids: Record<number, number>;
 
   trick: TrickCard[];
-  completedTricks: TrickCard[][];
+  completedTricks: number;
 
    teamATricks: number;
   teamBTricks: number;

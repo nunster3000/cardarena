@@ -5,9 +5,34 @@ const db_1 = require("../db");
 const auth_1 = require("../middleware/auth");
 const errorHandler_1 = require("../middleware/errorHandler");
 const client_1 = require("@prisma/client");
+const depositHold_1 = require("../lib/depositHold");
+const risk_1 = require("../lib/risk");
 const router = (0, express_1.Router)();
 // Platform fee: 10% taken when table fills
 const PLATFORM_FEE_BPS = 1000; // 10% in basis points
+router.get("/", auth_1.authMiddleware, async (_req, res, next) => {
+    try {
+        const tournaments = await db_1.prisma.tournament.findMany({
+            where: {
+                status: { in: [client_1.TournamentStatus.OPEN, client_1.TournamentStatus.FULL] },
+            },
+            orderBy: { createdAt: "desc" },
+            take: 50,
+            select: {
+                id: true,
+                entryFee: true,
+                maxPlayers: true,
+                status: true,
+                totalPrize: true,
+                createdAt: true,
+            },
+        });
+        res.json({ data: tournaments });
+    }
+    catch (err) {
+        next(err);
+    }
+});
 // =============================
 // ENTER TOURNAMENT
 // =============================
@@ -34,6 +59,16 @@ router.post("/:id/enter", auth_1.authMiddleware, async (req, res, next) => {
             });
             if (!wallet)
                 throw new errorHandler_1.AppError("Wallet not found", 404);
+            if (wallet.isFrozen) {
+                throw new errorHandler_1.AppError("Wallet is frozen. Cannot join games.", 403);
+            }
+            const user = await tx.user.findUnique({
+                where: { id: userId },
+                select: { isFrozen: true },
+            });
+            if (user?.isFrozen) {
+                throw new errorHandler_1.AppError("Account is frozen. Cannot join games.", 403);
+            }
             const entryFee = tournament.entryFee;
             const walletBalance = wallet.balance.toNumber();
             if (walletBalance < entryFee)
@@ -175,6 +210,21 @@ router.post("/:id/settle", auth_1.authMiddleware, async (req, res, next) => {
                 });
             }
             for (const entry of losers) {
+                const wallet = await tx.wallet.findUnique({
+                    where: { userId: entry.userId },
+                });
+                if (!wallet)
+                    throw new Error("Wallet missing");
+                await tx.ledger.create({
+                    data: {
+                        walletId: wallet.id,
+                        type: "WAGER_LOSS",
+                        amount: tournament.entryFee,
+                        balanceAfter: wallet.balance,
+                        reference: entry.id,
+                    },
+                });
+                await (0, depositHold_1.consumeLockedDepositAmount)(tx, entry.userId, tournament.entryFee);
                 await tx.tournamentEntry.update({
                     where: { id: entry.id },
                     data: { isWinner: false },
@@ -189,6 +239,7 @@ router.post("/:id/settle", auth_1.authMiddleware, async (req, res, next) => {
                 },
             });
         });
+        await (0, risk_1.evaluateWinRateAndCollusionRisk)(db_1.prisma, winners.map((w) => w.userId), losers.map((l) => l.userId));
         res.json({
             success: true,
             message: "Tournament settled successfully",

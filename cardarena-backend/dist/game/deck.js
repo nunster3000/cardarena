@@ -5,7 +5,7 @@ exports.createDeck = createDeck;
 exports.shuffleDeck = shuffleDeck;
 exports.dealCards = dealCards;
 function createDeck() {
-    const suits = ["S", "H", "D", "C"];
+    const suits = ["SPADES", "HEARTS", "DIAMONDS", "CLUBS"];
     const deck = [];
     for (const suit of suits) {
         for (let rank = 2; rank <= 14; rank++) {

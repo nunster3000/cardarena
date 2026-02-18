@@ -26,6 +26,7 @@ jobs:
     env:
       DATABASE_URL: postgresql://postgres:postgres@localhost:5432/cardarena_test
       STRIPE_SECRET_KEY: sk_test_dummy_key
+      JWT_SECRET: ci_test_secret
 
     steps:
       - uses: actions/checkout@v3
@@ -43,10 +44,6 @@ jobs:
         working-directory: cardarena-backend
         run: npx prisma generate
 
-      - name: Run Prisma Migrations
-        working-directory: cardarena-backend
-        run: npx prisma migrate deploy
-
       - name: Run Tests
         working-directory: cardarena-backend
-        run: npm test
+        run: npm run test:e2e

@@ -3,11 +3,37 @@ import { prisma } from "../db";
 import { authMiddleware, AuthRequest } from "../middleware/auth";
 import { AppError } from "../middleware/errorHandler";
 import { TournamentStatus, Team, Prisma } from "@prisma/client";
+import { consumeLockedDepositAmount } from "../lib/depositHold";
+import { evaluateWinRateAndCollusionRisk } from "../lib/risk";
 
 const router = Router();
 
 // Platform fee: 10% taken when table fills
 const PLATFORM_FEE_BPS = 1000; // 10% in basis points
+
+router.get("/", authMiddleware, async (_req: AuthRequest, res, next) => {
+  try {
+    const tournaments = await prisma.tournament.findMany({
+      where: {
+        status: { in: [TournamentStatus.OPEN, TournamentStatus.FULL] },
+      },
+      orderBy: { createdAt: "desc" },
+      take: 50,
+      select: {
+        id: true,
+        entryFee: true,
+        maxPlayers: true,
+        status: true,
+        totalPrize: true,
+        createdAt: true,
+      },
+    });
+
+    res.json({ data: tournaments });
+  } catch (err) {
+    next(err);
+  }
+});
 
 // =============================
 // ENTER TOURNAMENT
@@ -40,6 +66,17 @@ router.post("/:id/enter", authMiddleware, async (req: AuthRequest, res, next) =>
         where: { userId },
       });
       if (!wallet) throw new AppError("Wallet not found", 404);
+      if (wallet.isFrozen) {
+        throw new AppError("Wallet is frozen. Cannot join games.", 403);
+      }
+
+      const user = await tx.user.findUnique({
+        where: { id: userId },
+        select: { isFrozen: true },
+      });
+      if (user?.isFrozen) {
+        throw new AppError("Account is frozen. Cannot join games.", 403);
+      }
 
       const entryFee = tournament.entryFee;
       const walletBalance = wallet.balance.toNumber();
@@ -227,6 +264,28 @@ router.post("/:id/settle", authMiddleware, async (req: AuthRequest, res, next) =
       }
 
       for (const entry of losers) {
+        const wallet = await tx.wallet.findUnique({
+          where: { userId: entry.userId },
+        });
+
+        if (!wallet) throw new Error("Wallet missing");
+
+        await tx.ledger.create({
+          data: {
+            walletId: wallet.id,
+            type: "WAGER_LOSS",
+            amount: tournament.entryFee,
+            balanceAfter: wallet.balance,
+            reference: entry.id,
+          },
+        });
+
+        await consumeLockedDepositAmount(
+          tx,
+          entry.userId,
+          tournament.entryFee
+        );
+
         await tx.tournamentEntry.update({
           where: { id: entry.id },
           data: { isWinner: false },
@@ -242,6 +301,12 @@ router.post("/:id/settle", authMiddleware, async (req: AuthRequest, res, next) =
         },
       });
     });
+
+    await evaluateWinRateAndCollusionRisk(
+      prisma,
+      winners.map((w) => w.userId),
+      losers.map((l) => l.userId)
+    );
 
     res.json({
       success: true,

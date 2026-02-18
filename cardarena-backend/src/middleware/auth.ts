@@ -7,7 +7,14 @@ export interface AuthRequest extends Request {
   userRole?: string;
 }
 
-const JWT_SECRET = process.env.JWT_SECRET || "dev_secret";
+function getJwtSecret() {
+  const secret = process.env.JWT_SECRET;
+  if (secret) return secret;
+  if (process.env.NODE_ENV === "test") return "test_secret";
+  throw new Error("JWT_SECRET is not defined");
+}
+
+const JWT_SECRET = getJwtSecret();
 
 export function authMiddleware(
   req: AuthRequest,

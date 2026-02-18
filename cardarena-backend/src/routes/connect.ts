@@ -5,6 +5,8 @@ import { authMiddleware, AuthRequest } from "../middleware/auth";
 import { AppError } from "../middleware/errorHandler";
 
 const router = Router();
+const frontendBaseUrl =
+  process.env.FRONTEND_BASE_URL || "https://thecardarena.com";
 
 router.post("/create-account", authMiddleware, async (req: AuthRequest, res, next) => {
   try {
@@ -53,8 +55,8 @@ router.post("/onboard", authMiddleware, async (req: AuthRequest, res, next) => {
 
     const accountLink = await stripe.accountLinks.create({
       account: user.stripeAccountId,
-      refresh_url: "https://thecardarena.com/reauth",
-      return_url: "https://thecardarena.com/dashboard",
+      refresh_url: `${frontendBaseUrl}/reauth`,
+      return_url: `${frontendBaseUrl}/dashboard`,
       type: "account_onboarding",
     });
 

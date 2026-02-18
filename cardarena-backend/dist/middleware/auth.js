@@ -6,7 +6,15 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.authMiddleware = authMiddleware;
 exports.requireRole = requireRole;
 const jsonwebtoken_1 = __importDefault(require("jsonwebtoken"));
-const JWT_SECRET = process.env.JWT_SECRET || "dev_secret";
+function getJwtSecret() {
+    const secret = process.env.JWT_SECRET;
+    if (secret)
+        return secret;
+    if (process.env.NODE_ENV === "test")
+        return "test_secret";
+    throw new Error("JWT_SECRET is not defined");
+}
+const JWT_SECRET = getJwtSecret();
 function authMiddleware(req, res, next) {
     const authHeader = req.headers.authorization;
     // 1️⃣ Header must exist

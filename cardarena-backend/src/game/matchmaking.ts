@@ -11,6 +11,16 @@ export async function joinQueue(
   entryFee: number,
   onMatch: MatchCallback
 ) {
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    include: { wallet: true },
+  });
+
+  if (!user) throw new Error("User not found");
+  if (user.isFrozen) throw new Error("Account is frozen");
+  if (!user.wallet) throw new Error("Wallet not found");
+  if (user.wallet.isFrozen) throw new Error("Wallet is frozen");
+
   if (!waitingQueues[entryFee]) waitingQueues[entryFee] = [];
 
   // prevent duplicates

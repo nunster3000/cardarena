@@ -3,6 +3,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 const express_1 = require("express");
 const stripe_1 = require("../lib/stripe");
 const db_1 = require("../db");
+const depositHold_1 = require("../lib/depositHold");
 const router = (0, express_1.Router)();
 router.post("/", async (req, res) => {
     const sig = req.headers["stripe-signature"];
@@ -79,6 +80,15 @@ router.post("/", async (req, res) => {
                     where: { id: depositId },
                     data: {
                         status: "COMPLETED",
+                    },
+                });
+                await tx.depositHold.create({
+                    data: {
+                        userId,
+                        depositId,
+                        amount,
+                        remainingAmount: amount,
+                        releaseAt: (0, depositHold_1.getDepositReleaseAt)(),
                     },
                 });
             });

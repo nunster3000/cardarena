@@ -49,7 +49,7 @@ export async function startGame(gameId: string) {
     hands: handsForState,
     bids: {},
     trick: [],
-    completedTricks: [],
+    completedTricks: 0,
     handNumber: 1,
     teamATricks: 0,
     teamBTricks: 0,

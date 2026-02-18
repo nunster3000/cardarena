@@ -6,6 +6,18 @@ const engine_1 = require("./engine");
 const waitingQueues = {};
 // key = entryFee, value = array of userIds
 async function joinQueue(userId, entryFee, onMatch) {
+    const user = await db_1.prisma.user.findUnique({
+        where: { id: userId },
+        include: { wallet: true },
+    });
+    if (!user)
+        throw new Error("User not found");
+    if (user.isFrozen)
+        throw new Error("Account is frozen");
+    if (!user.wallet)
+        throw new Error("Wallet not found");
+    if (user.wallet.isFrozen)
+        throw new Error("Wallet is frozen");
     if (!waitingQueues[entryFee])
         waitingQueues[entryFee] = [];
     // prevent duplicates

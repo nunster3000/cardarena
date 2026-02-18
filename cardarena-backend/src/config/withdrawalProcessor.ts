@@ -1,13 +1,12 @@
+import { Prisma } from "@prisma/client";
 import { prisma } from "../db";
 import { stripe } from "../lib/stripe";
-import { Prisma } from "@prisma/client";
 
 const MAX_RETRIES = 3;
 
 export async function processPendingWithdrawals() {
   const now = new Date();
 
-  // Step 1: Lock eligible withdrawals
   await prisma.withdrawal.updateMany({
     where: {
       status: "INITIATED",
@@ -18,12 +17,12 @@ export async function processPendingWithdrawals() {
     },
   });
 
-  // Step 2: Fetch locked withdrawals
   const withdrawals = await prisma.withdrawal.findMany({
     where: {
-    status: "UNDER_REVIEW",
-    availableAt: { lte: now },
-  },
+      status: "UNDER_REVIEW",
+      availableAt: { lte: now },
+      adminHold: false,
+    },
     include: {
       user: {
         include: { wallet: true },
@@ -33,19 +32,12 @@ export async function processPendingWithdrawals() {
 
   for (const withdrawal of withdrawals) {
     try {
-      // 🔹 Ensure onboarding complete
-      if (
-        !withdrawal.user.stripeAccountId ||
-        !withdrawal.user.stripeOnboarded
-      ) {
+      if (!withdrawal.user.stripeAccountId || !withdrawal.user.stripeOnboarded) {
         console.log(`User ${withdrawal.userId} not onboarded.`);
         continue;
       }
 
-      // 🔹 1️⃣ Transfer from platform → connected account
-      if (withdrawal.status !== "APPROVED") return;
-
-      const transfer = await stripe.transfers.create(
+      await stripe.transfers.create(
         {
           amount: withdrawal.netAmount,
           currency: "usd",
@@ -56,7 +48,6 @@ export async function processPendingWithdrawals() {
         }
       );
 
-      // 🔹 2️⃣ Create payout to bank
       const payout = await stripe.payouts.create(
         {
           amount: withdrawal.netAmount,
@@ -67,7 +58,6 @@ export async function processPendingWithdrawals() {
         }
       );
 
-      // 🔹 Finalize DB updates
       await prisma.$transaction(async (tx) => {
         await tx.withdrawal.update({
           where: { id: withdrawal.id },
@@ -95,7 +85,7 @@ export async function processPendingWithdrawals() {
         });
       });
 
-      console.log(`Withdrawal ${withdrawal.id} completed.`);
+      console.log(`Withdrawal ${withdrawal.id} processed.`);
     } catch (err) {
       console.error(`Withdrawal ${withdrawal.id} failed:`, err);
 
@@ -151,7 +141,3 @@ export async function processPendingWithdrawals() {
     }
   }
 }
-
-
-
-

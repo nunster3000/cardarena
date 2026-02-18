@@ -1,13 +1,12 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.processPendingWithdrawals = processPendingWithdrawals;
+const client_1 = require("@prisma/client");
 const db_1 = require("../db");
 const stripe_1 = require("../lib/stripe");
-const client_1 = require("@prisma/client");
 const MAX_RETRIES = 3;
 async function processPendingWithdrawals() {
     const now = new Date();
-    // Step 1: Lock eligible withdrawals
     await db_1.prisma.withdrawal.updateMany({
         where: {
             status: "INITIATED",
@@ -17,11 +16,11 @@ async function processPendingWithdrawals() {
             status: "UNDER_REVIEW",
         },
     });
-    // Step 2: Fetch locked withdrawals
     const withdrawals = await db_1.prisma.withdrawal.findMany({
         where: {
             status: "UNDER_REVIEW",
             availableAt: { lte: now },
+            adminHold: false,
         },
         include: {
             user: {
@@ -31,30 +30,23 @@ async function processPendingWithdrawals() {
     });
     for (const withdrawal of withdrawals) {
         try {
-            // 🔹 Ensure onboarding complete
-            if (!withdrawal.user.stripeAccountId ||
-                !withdrawal.user.stripeOnboarded) {
+            if (!withdrawal.user.stripeAccountId || !withdrawal.user.stripeOnboarded) {
                 console.log(`User ${withdrawal.userId} not onboarded.`);
                 continue;
             }
-            // 🔹 1️⃣ Transfer from platform → connected account
-            if (withdrawal.status !== "APPROVED")
-                return;
-            const transfer = await stripe_1.stripe.transfers.create({
+            await stripe_1.stripe.transfers.create({
                 amount: withdrawal.netAmount,
                 currency: "usd",
                 destination: withdrawal.user.stripeAccountId,
             }, {
                 idempotencyKey: withdrawal.idempotencyKey,
             });
-            // 🔹 2️⃣ Create payout to bank
             const payout = await stripe_1.stripe.payouts.create({
                 amount: withdrawal.netAmount,
                 currency: "usd",
             }, {
                 stripeAccount: withdrawal.user.stripeAccountId,
             });
-            // 🔹 Finalize DB updates
             await db_1.prisma.$transaction(async (tx) => {
                 await tx.withdrawal.update({
                     where: { id: withdrawal.id },
@@ -79,7 +71,7 @@ async function processPendingWithdrawals() {
                     },
                 });
             });
-            console.log(`Withdrawal ${withdrawal.id} completed.`);
+            console.log(`Withdrawal ${withdrawal.id} processed.`);
         }
         catch (err) {
             console.error(`Withdrawal ${withdrawal.id} failed:`, err);

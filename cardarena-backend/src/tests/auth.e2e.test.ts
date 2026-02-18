@@ -3,9 +3,10 @@ import { app } from "../app";
 import { prisma } from "../db";
 
 describe("Auth & Wallet Flow", () => {
+  const runId = Date.now();
   const testUser = {
-    email: "testuser@example.com",
-    username: "testuser",
+    email: `testuser_${runId}@example.com`,
+    username: `testuser_${runId}`,
     password: "Password123!",
   };
 

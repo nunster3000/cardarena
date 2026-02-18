@@ -28,7 +28,7 @@ export function resolveHand(state: GameState) {
   state.teamBTricks = 0;
 
   state.bids = {};
-  state.completedTricks = [];
+  state.completedTricks = 0;
 
   state.handNumber += 1;
 

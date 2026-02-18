@@ -18,7 +18,7 @@ export async function POST(req: Request) {
     });
 
     return new Response("OK", { status: 200 });
-  } catch (error) {
+  } catch {
     return new Response("Email failed", { status: 500 });
   }
 }

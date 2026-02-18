@@ -2,6 +2,7 @@ import { Router, Request, Response } from "express";
 import Stripe from "stripe";
 import { stripe } from "../lib/stripe";
 import { prisma } from "../db";
+import { getDepositReleaseAt } from "../lib/depositHold";
 
 const router = Router();
 
@@ -102,6 +103,16 @@ router.post("/", async (req: Request, res: Response) => {
           where: { id: depositId },
           data: {
             status: "COMPLETED",
+          },
+        });
+
+        await tx.depositHold.create({
+          data: {
+            userId,
+            depositId,
+            amount,
+            remainingAmount: amount,
+            releaseAt: getDepositReleaseAt(),
           },
         });
       });

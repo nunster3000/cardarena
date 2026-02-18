@@ -17,8 +17,8 @@ export async function resolveHand(gameId: string) {
 
   if (!state) throw new Error("Game state missing");
 
-  const teamABid = Number(state.bids?.TEAM_A || 0);
-  const teamBBid = Number(state.bids?.TEAM_B || 0);
+  const teamABid = Number(state.bids?.[1] || 0) + Number(state.bids?.[3] || 0);
+  const teamBBid = Number(state.bids?.[2] || 0) + Number(state.bids?.[4] || 0);
 
   const teamATricks = Number(state.teamATricks || 0);
   const teamBTricks = Number(state.teamBTricks || 0);
@@ -30,14 +30,10 @@ export async function resolveHand(gameId: string) {
   let teamAScoreDelta = 0;
   let teamBScoreDelta = 0;
 
-  let teamASet = false;
-  let teamBSet = false;
-
   // TEAM A
   if (teamATricks < teamABid) {
     teamAScoreDelta = -teamABid * 10;
     state.teamASets = (state.teamASets || 0) + 1;
-    teamASet = true;
   } else {
     teamAScoreDelta = teamABid * 10;
   }
@@ -46,7 +42,6 @@ export async function resolveHand(gameId: string) {
   if (teamBTricks < teamBBid) {
     teamBScoreDelta = -teamBBid * 10;
     state.teamBSets = (state.teamBSets || 0) + 1;
-    teamBSet = true;
   } else {
     teamBScoreDelta = teamBBid * 10;
   }

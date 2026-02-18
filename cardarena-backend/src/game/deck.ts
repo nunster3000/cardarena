@@ -1,6 +1,6 @@
 // src/game/deck.ts
 
-export type Suit = "S" | "H" | "D" | "C";
+export type Suit = "SPADES" | "HEARTS" | "DIAMONDS" | "CLUBS";
 
 export interface Card {
   suit: Suit;
@@ -8,7 +8,7 @@ export interface Card {
 }
 
 export function createDeck(): Card[] {
-  const suits: Suit[] = ["S", "H", "D", "C"];
+  const suits: Suit[] = ["SPADES", "HEARTS", "DIAMONDS", "CLUBS"];
   const deck: Card[] = [];
 
   for (const suit of suits) {

@@ -24,7 +24,7 @@ function resolveHand(state) {
     state.teamATricks = 0;
     state.teamBTricks = 0;
     state.bids = {};
-    state.completedTricks = [];
+    state.completedTricks = 0;
     state.handNumber += 1;
     return state;
 }

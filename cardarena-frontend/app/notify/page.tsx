@@ -34,7 +34,7 @@ export default function Notify() {
 
         {success && (
           <p className="text-green-400 text-center mb-4">
-            You're on the list. We’ll notify you when tournaments launch.
+            You&apos;re on the list. We&apos;ll notify you when tournaments launch.
           </p>
         )}
 
@@ -44,9 +44,7 @@ export default function Notify() {
             placeholder="Your Name"
             required
             value={form.name}
-            onChange={(e) =>
-              setForm({ ...form, name: e.target.value })
-            }
+            onChange={(e) => setForm({ ...form, name: e.target.value })}
             className="px-4 py-3 rounded-lg bg-white/10 border border-white/20 focus:outline-none"
           />
 
@@ -55,9 +53,7 @@ export default function Notify() {
             placeholder="Your Email"
             required
             value={form.email}
-            onChange={(e) =>
-              setForm({ ...form, email: e.target.value })
-            }
+            onChange={(e) => setForm({ ...form, email: e.target.value })}
             className="px-4 py-3 rounded-lg bg-white/10 border border-white/20 focus:outline-none"
           />
 

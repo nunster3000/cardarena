@@ -32,18 +32,48 @@ var __importStar = (this && this.__importStar) || (function () {
         return result;
     };
 })();
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.registerGameSockets = registerGameSockets;
-const engine_1 = require("../game/engine");
+const jsonwebtoken_1 = __importDefault(require("jsonwebtoken"));
 const db_1 = require("../db");
 const bot_1 = require("../game/bot");
+const engine_1 = require("../game/engine");
 const matchmaking_1 = require("../game/matchmaking");
 const activeConnections = new Map();
 const disconnectTimers = new Map();
-const userSockets = new Map(); // userId -> socketId
+const userSockets = new Map();
+const userConnectionCounts = new Map();
 const socketRateLimit = new Map();
 const MAX_EVENTS_PER_SECOND = 10;
+function getJwtSecret() {
+    const secret = process.env.JWT_SECRET;
+    if (secret)
+        return secret;
+    if (process.env.NODE_ENV === "test") {
+        return "test_secret";
+    }
+    throw new Error("JWT_SECRET is not defined");
+}
 function registerGameSockets(io) {
+    const jwtSecret = getJwtSecret();
+    io.use((socket, next) => {
+        try {
+            const token = socket.handshake.auth?.token;
+            if (!token) {
+                return next(new Error("Missing socket auth token"));
+            }
+            const payload = jsonwebtoken_1.default.verify(token, jwtSecret);
+            socket.data.userId = payload.userId;
+            socket.data.userRole = payload.role;
+            next();
+        }
+        catch {
+            next(new Error("Invalid socket auth token"));
+        }
+    });
     function checkRateLimit(socketId) {
         const now = Date.now();
         const data = socketRateLimit.get(socketId);
@@ -61,29 +91,42 @@ function registerGameSockets(io) {
         data.count++;
         return true;
     }
-    io.on("connection", (socket) => {
+    io.on("connection", (rawSocket) => {
+        const socket = rawSocket;
+        const userId = socket.data.userId;
+        if (!userId) {
+            socket.disconnect(true);
+            return;
+        }
         console.log("Player connected:", socket.id);
-        socket.on("register_user", ({ userId }) => {
+        userSockets.set(userId, socket.id);
+        const currentCount = userConnectionCounts.get(userId) ?? 0;
+        userConnectionCounts.set(userId, currentCount + 1);
+        db_1.prisma.user
+            .update({
+            where: { id: userId },
+            data: { isOnline: true, lastSeenAt: new Date() },
+        })
+            .catch(() => undefined);
+        socket.on("find_table", async ({ entryFee }) => {
             if (!checkRateLimit(socket.id)) {
                 return socket.emit("error", { message: "Rate limit exceeded" });
             }
-            userSockets.set(userId, socket.id);
-        });
-        socket.on("find_table", async ({ userId, entryFee }) => {
-            if (!checkRateLimit(socket.id)) {
-                return socket.emit("error", { message: "Rate limit exceeded" });
-            }
-            await (0, matchmaking_1.joinQueue)(userId, entryFee, async ({ gameId, playerIds }) => {
-                // Notify all 4 players they have a game
-                for (const pid of playerIds) {
-                    const sid = userSockets.get(pid);
-                    if (sid) {
-                        io.to(sid).emit("match_found", { gameId });
+            try {
+                await (0, matchmaking_1.joinQueue)(userId, entryFee, async ({ gameId, playerIds }) => {
+                    for (const pid of playerIds) {
+                        const sid = userSockets.get(pid);
+                        if (sid) {
+                            io.to(sid).emit("match_found", { gameId });
+                        }
                     }
-                }
-            });
+                });
+            }
+            catch (err) {
+                socket.emit("error", { message: err?.message ?? "Unable to join queue" });
+            }
         });
-        socket.on("place_bid", async ({ gameId, userId, bid }) => {
+        socket.on("place_bid", async ({ gameId, bid }) => {
             if (!checkRateLimit(socket.id)) {
                 return socket.emit("error", { message: "Rate limit exceeded" });
             }
@@ -102,7 +145,7 @@ function registerGameSockets(io) {
                 socket.emit("error", { message: err?.message ?? "Unable to place bid" });
             }
         });
-        socket.on("play_card", async ({ gameId, userId, card }) => {
+        socket.on("play_card", async ({ gameId, card }) => {
             if (!checkRateLimit(socket.id)) {
                 return socket.emit("error", { message: "Rate limit exceeded" });
             }
@@ -121,7 +164,7 @@ function registerGameSockets(io) {
                 socket.emit("error", { message: err?.message ?? "Unable to play card" });
             }
         });
-        socket.on("join_game", async ({ gameId, userId }) => {
+        socket.on("join_game", async ({ gameId }) => {
             if (!checkRateLimit(socket.id)) {
                 return socket.emit("error", { message: "Rate limit exceeded" });
             }
@@ -140,7 +183,6 @@ function registerGameSockets(io) {
                 gameId,
                 seat: player.seat,
             });
-            // If reconnecting -> cancel timer
             if (disconnectTimers.has(player.id)) {
                 clearTimeout(disconnectTimers.get(player.id));
                 disconnectTimers.delete(player.id);
@@ -168,9 +210,17 @@ function registerGameSockets(io) {
             }
         });
         socket.on("disconnect", async () => {
-            for (const [uid, sid] of userSockets.entries()) {
-                if (sid === socket.id)
-                    userSockets.delete(uid);
+            userSockets.delete(userId);
+            const count = userConnectionCounts.get(userId) ?? 0;
+            const next = Math.max(0, count - 1);
+            userConnectionCounts.set(userId, next);
+            if (next === 0) {
+                await db_1.prisma.user
+                    .update({
+                    where: { id: userId },
+                    data: { isOnline: false, lastSeenAt: new Date() },
+                })
+                    .catch(() => undefined);
             }
             const connection = activeConnections.get(socket.id);
             if (!connection)
@@ -188,7 +238,6 @@ function registerGameSockets(io) {
                     disconnectedAt: new Date(),
                 },
             });
-            // Start 30-second timer
             const timer = setTimeout(async () => {
                 console.log(`Replacing seat ${seat} with bot`);
                 await db_1.prisma.gamePlayer.update({

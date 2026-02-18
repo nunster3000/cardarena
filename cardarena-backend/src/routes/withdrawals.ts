@@ -1,21 +1,30 @@
+import { randomUUID } from "crypto";
 import { Router } from "express";
 import { prisma } from "../db";
-import { randomUUID } from "crypto";
-import { authMiddleware, AuthRequest } from "../middleware/auth";
+import { getLockedDepositAmount } from "../lib/depositHold";
+import {
+  createRiskFlag,
+  evaluateMultiAccountRisk,
+  evaluateRapidDepositWithdrawRisk,
+  evaluateWithdrawalVelocityRisk,
+  recordUserSignal,
+} from "../lib/risk";
 import { AppError } from "../middleware/errorHandler";
+import { authMiddleware, AuthRequest } from "../middleware/auth";
+import { incMetric } from "../monitoring/metrics";
 
 const router = Router();
 
-const MIN_WITHDRAWAL = 2500; // $25 in cents
-const WITHDRAWAL_FEE = 500;  // $5 flat fee
-const DAILY_LIMIT = 100000; // $1,000 in cents
-const MONTHLY_LIMIT = 500000; // $5,000 in cents
+const MIN_WITHDRAWAL = 2500;
+const WITHDRAWAL_FEE = 500;
+const DAILY_LIMIT = 100000;
+const MONTHLY_LIMIT = 500000;
 
 router.post("/", authMiddleware, async (req: AuthRequest, res, next) => {
   try {
     const amount = Number(req.body.amount);
 
-    if (!amount || isNaN(amount)) {
+    if (!amount || Number.isNaN(amount)) {
       throw new AppError("Invalid withdrawal amount", 400);
     }
 
@@ -23,49 +32,73 @@ router.post("/", authMiddleware, async (req: AuthRequest, res, next) => {
       throw new AppError("Minimum withdrawal is $25", 400);
     }
 
-    // Calculate daily total
+    const user = await prisma.user.findUnique({
+      where: { id: req.userId! },
+      select: { id: true, withdrawalBlocked: true, isFrozen: true },
+    });
+
+    if (!user) throw new AppError("User not found", 404);
+    if (user.isFrozen) {
+      throw new AppError("Account is frozen. Withdrawals are disabled.", 403);
+    }
+    if (user.withdrawalBlocked) {
+      throw new AppError("Withdrawals are blocked on this account", 403);
+    }
+
+    await prisma.$transaction(async (tx) => {
+      await recordUserSignal(tx, {
+        userId: req.userId!,
+        type: "WITHDRAW",
+        ip: req.ip,
+        userAgent: req.get("user-agent"),
+      });
+      await evaluateMultiAccountRisk(tx, req.userId!, req.ip, req.get("user-agent"));
+    });
+
     const startOfDay = new Date();
     startOfDay.setHours(0, 0, 0, 0);
 
     const dailyTotal = await prisma.withdrawal.aggregate({
       where: {
         userId: req.userId!,
-        status: {
-          in: ["INITIATED", "UNDER_REVIEW", "APPROVED", "COMPLETED"],
-        },
-        createdAt: {
-          gte: startOfDay,
-        },
+        status: { in: ["INITIATED", "UNDER_REVIEW", "APPROVED", "COMPLETED"] },
+        createdAt: { gte: startOfDay },
       },
-      _sum: {
-        amount: true,
-      },
+      _sum: { amount: true },
     });
-
     const dailyAmount = dailyTotal._sum.amount ?? 0;
-
     if (dailyAmount + amount > DAILY_LIMIT) {
+      await createRiskFlag(prisma, {
+        userId: req.userId!,
+        type: "WITHDRAWAL_VELOCITY",
+        severity: "MEDIUM",
+        score: 25,
+        reason: "Daily withdrawal limit breached attempt.",
+        details: { amount, dailyAmount },
+      });
       throw new AppError("Daily withdrawal limit exceeded", 400);
     }
 
-    // Max 2 withdrawals per day
     const withdrawalCountToday = await prisma.withdrawal.count({
       where: {
         userId: req.userId!,
-        createdAt: {
-          gte: startOfDay,
-        },
-        status: {
-          in: ["INITIATED", "UNDER_REVIEW", "APPROVED", "COMPLETED"],
-        },
+        createdAt: { gte: startOfDay },
+        status: { in: ["INITIATED", "UNDER_REVIEW", "APPROVED", "COMPLETED"] },
       },
     });
 
     if (withdrawalCountToday >= 2) {
+      await createRiskFlag(prisma, {
+        userId: req.userId!,
+        type: "WITHDRAWAL_VELOCITY",
+        severity: "MEDIUM",
+        score: 20,
+        reason: "More than 2 withdrawals attempted in a day.",
+        details: { withdrawalCountToday },
+      });
       throw new AppError("Maximum 2 withdrawals allowed per day", 400);
     }
 
-    // Calculate monthly total
     const startOfMonth = new Date();
     startOfMonth.setDate(1);
     startOfMonth.setHours(0, 0, 0, 0);
@@ -73,21 +106,21 @@ router.post("/", authMiddleware, async (req: AuthRequest, res, next) => {
     const monthlyTotal = await prisma.withdrawal.aggregate({
       where: {
         userId: req.userId!,
-        status: {
-          in: ["INITIATED", "UNDER_REVIEW", "APPROVED", "COMPLETED"],
-        },
-        createdAt: {
-          gte: startOfMonth,
-        },
+        status: { in: ["INITIATED", "UNDER_REVIEW", "APPROVED", "COMPLETED"] },
+        createdAt: { gte: startOfMonth },
       },
-      _sum: {
-        amount: true,
-      },
+      _sum: { amount: true },
     });
-
     const monthlyAmount = monthlyTotal._sum.amount ?? 0;
-
     if (monthlyAmount + amount > MONTHLY_LIMIT) {
+      await createRiskFlag(prisma, {
+        userId: req.userId!,
+        type: "WITHDRAWAL_VELOCITY",
+        severity: "MEDIUM",
+        score: 25,
+        reason: "Monthly withdrawal limit breached attempt.",
+        details: { amount, monthlyAmount },
+      });
       throw new AppError("Monthly withdrawal limit exceeded", 400);
     }
 
@@ -95,33 +128,53 @@ router.post("/", authMiddleware, async (req: AuthRequest, res, next) => {
       where: { userId: req.userId! },
     });
 
-    if (!wallet) {
-      throw new AppError("Wallet not found", 404);
+    if (!wallet) throw new AppError("Wallet not found", 404);
+    if (wallet.isFrozen) {
+      throw new AppError("Wallet is frozen. Withdrawals are disabled.", 403);
     }
 
     const currentBalance = wallet.balance.toNumber();
+    const lockedDepositAmount = await getLockedDepositAmount(prisma, req.userId!);
+    const withdrawableBalance = Math.max(0, currentBalance - lockedDepositAmount);
 
-    if (currentBalance < amount) {
-      throw new AppError("Insufficient balance", 400);
+    if (withdrawableBalance < amount) {
+      await createRiskFlag(prisma, {
+        userId: req.userId!,
+        type: "RAPID_DEPOSIT_WITHDRAW",
+        severity: "HIGH",
+        score: 35,
+        reason: "Attempted withdrawal exceeds withdrawable (unlocked) balance.",
+        details: { amount, withdrawableBalance, lockedDepositAmount },
+      });
+      throw new AppError(
+        `Insufficient withdrawable balance. Available now: $${(withdrawableBalance / 100).toFixed(2)}`,
+        400
+      );
     }
 
     const idempotencyKey = randomUUID();
     const netAmount = amount - WITHDRAWAL_FEE;
-
     if (netAmount <= 0) {
       throw new AppError("Withdrawal amount too small after fee", 400);
     }
 
+    const openRiskFlags = await prisma.riskFlag.count({
+      where: {
+        userId: req.userId!,
+        status: "OPEN",
+        severity: { in: ["HIGH", "MEDIUM"] },
+      },
+    });
+    const shouldAutoHold = openRiskFlags > 0;
+
     await prisma.$transaction(async (tx) => {
       const newBalance = wallet.balance.minus(amount);
 
-      // 1️⃣ Update wallet balance
       await tx.wallet.update({
         where: { userId: req.userId! },
         data: { balance: newBalance },
       });
 
-      // 2️⃣ Create withdrawal record
       const withdrawal = await tx.withdrawal.create({
         data: {
           userId: req.userId!,
@@ -130,31 +183,40 @@ router.post("/", authMiddleware, async (req: AuthRequest, res, next) => {
           netAmount,
           status: "INITIATED",
           idempotencyKey,
-          availableAt: new Date(Date.now() + 8 * 60 * 60 * 1000), // 8-hour hold
+          availableAt: new Date(Date.now() + 8 * 60 * 60 * 1000),
+          adminHold: shouldAutoHold,
+          adminHoldReason: shouldAutoHold ? "Auto-hold due to open risk flags" : null,
+          adminHoldAt: shouldAutoHold ? new Date() : null,
+          riskScore: shouldAutoHold ? 20 : 0,
+          autoFlagged: shouldAutoHold,
         },
       });
 
-      // 3️⃣ Ledger entry (lock funds)
       await tx.ledger.create({
         data: {
           walletId: wallet.id,
           type: "WITHDRAW_LOCK",
           amount,
           balanceAfter: newBalance,
-          reference: withdrawal.id, // important: unique reference
+          reference: withdrawal.id,
         },
       });
     });
 
+    await evaluateWithdrawalVelocityRisk(prisma, req.userId!);
+    await evaluateRapidDepositWithdrawRisk(prisma, req.userId!);
+
+    incMetric("withdrawals.initiated.total");
+
     res.json({
       success: true,
-      message: "Withdrawal initiated. Funds will be available after review period.",
+      message: shouldAutoHold
+        ? "Withdrawal initiated and placed on risk hold for review."
+        : "Withdrawal initiated. Funds will be available after review period.",
     });
-
   } catch (err) {
     next(err);
   }
 });
 
 export default router;
-

@@ -6,6 +6,7 @@ const db_1 = require("../db");
 const auth_1 = require("../middleware/auth");
 const errorHandler_1 = require("../middleware/errorHandler");
 const router = (0, express_1.Router)();
+const frontendBaseUrl = process.env.FRONTEND_BASE_URL || "https://thecardarena.com";
 router.post("/create-account", auth_1.authMiddleware, async (req, res, next) => {
     try {
         const user = await db_1.prisma.user.findUnique({
@@ -46,8 +47,8 @@ router.post("/onboard", auth_1.authMiddleware, async (req, res, next) => {
         }
         const accountLink = await stripe_1.stripe.accountLinks.create({
             account: user.stripeAccountId,
-            refresh_url: "https://thecardarena.com/reauth",
-            return_url: "https://thecardarena.com/dashboard",
+            refresh_url: `${frontendBaseUrl}/reauth`,
+            return_url: `${frontendBaseUrl}/dashboard`,
             type: "account_onboarding",
         });
         res.json({ url: accountLink.url });

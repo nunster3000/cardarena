@@ -35,6 +35,45 @@ enum WithdrawalStatus {
   COMPLETED
 }
 
+enum RiskFlagType {
+  RAPID_DEPOSIT_WITHDRAW
+  HIGH_WIN_RATE
+  COLLUSION_SUSPECT
+  MULTI_ACCOUNT_SUSPECT
+  WITHDRAWAL_VELOCITY
+}
+
+enum RiskFlagSeverity {
+  LOW
+  MEDIUM
+  HIGH
+}
+
+enum RiskFlagStatus {
+  OPEN
+  RESOLVED
+}
+
+enum UserSignalType {
+  REGISTER
+  LOGIN
+  DEPOSIT
+  WITHDRAW
+}
+
+enum FriendStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+  BLOCKED
+}
+
+enum SignupStatus {
+  PENDING
+  APPROVED
+  WAITLISTED
+}
+
 enum DepositStatus {
   PENDING
   COMPLETED
@@ -53,6 +92,8 @@ enum TransactionType {
   WITHDRAW_COMPLETE
   WITHDRAW_RELEASE
   WITHDRAW_FEE
+  MANUAL_CREDIT
+  MANUAL_DEBIT
 }
 
 enum PlatformTransactionType {
@@ -96,9 +137,23 @@ model User {
   password  String
   role      Role     @default(USER)
   createdAt DateTime @default(now())
+  avatarPreset String?
+  avatarUrl   String?
+  bio         String?
+  isOnline    Boolean  @default(false)
+  lastSeenAt  DateTime?
+  signupStatus SignupStatus @default(APPROVED)
+  signupRequestedAt DateTime?
+  signupReviewedAt DateTime?
+  signupReviewedBy String?
 
   stripeAccountId String? @unique
   stripeOnboarded Boolean @default(false)
+  riskScore       Int     @default(0)
+  withdrawalBlocked Boolean @default(false)
+  isFrozen        Boolean @default(false)
+  frozenAt        DateTime?
+  frozenReason    String?
 
   disconnectCount  Int       @default(0)
   lastDisconnectAt DateTime?
@@ -106,10 +161,19 @@ model User {
 
   wallet      Wallet?
   deposits    Deposit[]
+  depositHolds DepositHold[]
+  riskFlags   RiskFlag[]
+  signals     UserSignal[]
   withdrawals Withdrawal[]
+  walletAdjustments WalletAdjustment[] @relation("AdminWalletAdjustments")
+  adminAuditActions AdminActionAudit[] @relation("AdminActor")
   entries     TournamentEntry[]
   gamePlayers GamePlayer[]
   cards Card[]
+  friendships Friend[] @relation("UserFriendships")
+  friendOf Friend[]    @relation("UserFriendOf")
+  adminNotifications AdminNotification[]
+  adminEmailVerifications AdminEmailVerificationToken[]
 }
 
 model Wallet {
@@ -117,10 +181,14 @@ model Wallet {
   userId    String   @unique
   user      User     @relation(fields: [userId], references: [id])
   balance   Decimal  @default(0.00)
+  isFrozen  Boolean  @default(false)
+  frozenAt  DateTime?
+  frozenReason String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   transactions Ledger[]
+  adjustments WalletAdjustment[]
 }
 
 model Ledger {
@@ -131,10 +199,94 @@ model Ledger {
   amount       Decimal
   balanceAfter Decimal
   reference    String?
+  adminUserId  String?
+  reason       String?
   createdAt    DateTime        @default(now())
 
   @@unique([reference, type])
   @@index([reference])
+}
+
+model WalletAdjustment {
+  id          String   @id @default(uuid())
+  walletId    String
+  wallet      Wallet   @relation(fields: [walletId], references: [id])
+  adminUserId String
+  adminUser   User     @relation("AdminWalletAdjustments", fields: [adminUserId], references: [id])
+  amount      Decimal
+  reason      String
+  ledgerId    String?  @unique
+  createdAt   DateTime @default(now())
+}
+
+model AppSetting {
+  key       String   @id
+  value     String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Friend {
+  id         String      @id @default(uuid())
+  userId     String
+  friendId   String
+  status     FriendStatus @default(PENDING)
+  isTop      Boolean     @default(false)
+  createdAt  DateTime    @default(now())
+  updatedAt  DateTime    @updatedAt
+  acceptedAt DateTime?
+
+  user   User @relation("UserFriendships", fields: [userId], references: [id])
+  friend User @relation("UserFriendOf", fields: [friendId], references: [id])
+
+  @@unique([userId, friendId])
+  @@index([userId, status])
+}
+
+model AdminActionAudit {
+  id         String   @id @default(uuid())
+  adminUserId String
+  action     String
+  targetType String
+  targetId   String
+  reason     String?
+  details    Json?
+  createdAt  DateTime @default(now())
+
+  adminUser User @relation("AdminActor", fields: [adminUserId], references: [id])
+
+  @@index([adminUserId, createdAt])
+  @@index([targetType, targetId, createdAt])
+}
+
+model AdminNotification {
+  id        String   @id @default(uuid())
+  type      String
+  title     String
+  message   String
+  payload   Json?
+  status    String   @default("OPEN")
+  readAt    DateTime?
+  actedAt   DateTime?
+  createdAt DateTime @default(now())
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id])
+
+  @@index([status, createdAt])
+  @@index([userId, createdAt])
+}
+
+model AdminEmailVerificationToken {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  tokenHash String   @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime @default(now())
+
+  @@index([userId, createdAt])
+  @@index([expiresAt, usedAt])
 }
 
 enum CardRarity {
@@ -173,6 +325,23 @@ model Deposit {
   updatedAt       DateTime      @updatedAt
 
   user User @relation(fields: [userId], references: [id])
+  hold DepositHold?
+}
+
+model DepositHold {
+  id              String   @id @default(uuid())
+  userId          String
+  depositId       String   @unique
+  amount          Int
+  remainingAmount Int
+  releaseAt       DateTime
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  user    User    @relation(fields: [userId], references: [id])
+  deposit Deposit @relation(fields: [depositId], references: [id])
+
+  @@index([userId, releaseAt])
 }
 
 model Withdrawal {
@@ -187,9 +356,45 @@ model Withdrawal {
   availableAt    DateTime
   processedAt    DateTime?
   retryCount     Int              @default(0)
+  adminHold      Boolean          @default(false)
+  adminHoldReason String?
+  adminHoldAt    DateTime?
+  adminHeldBy    String?
+  riskScore      Int              @default(0)
+  autoFlagged    Boolean          @default(false)
   createdAt      DateTime         @default(now())
 
   user User @relation(fields: [userId], references: [id])
+}
+
+model RiskFlag {
+  id         String           @id @default(uuid())
+  userId     String
+  user       User             @relation(fields: [userId], references: [id])
+  type       RiskFlagType
+  severity   RiskFlagSeverity
+  status     RiskFlagStatus   @default(OPEN)
+  score      Int
+  reason     String
+  details    Json?
+  createdAt  DateTime         @default(now())
+  resolvedAt DateTime?
+
+  @@index([userId, createdAt])
+  @@index([status, severity, createdAt])
+}
+
+model UserSignal {
+  id        String         @id @default(uuid())
+  userId    String
+  user      User           @relation(fields: [userId], references: [id])
+  type      UserSignalType
+  ip        String?
+  userAgent String?
+  createdAt DateTime       @default(now())
+
+  @@index([userId, createdAt])
+  @@index([ip, userAgent, createdAt])
 }
 
 //////////////////////////////////////////////////////

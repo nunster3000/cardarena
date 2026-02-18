@@ -6,27 +6,53 @@ Object.defineProperty(exports, "__esModule", { value: true });
 const express_1 = require("express");
 const bcrypt_1 = __importDefault(require("bcrypt"));
 const jsonwebtoken_1 = __importDefault(require("jsonwebtoken"));
+const client_1 = require("@prisma/client");
 const db_1 = require("../db");
 const auth_1 = require("../middleware/auth");
 const errorHandler_1 = require("../middleware/errorHandler");
+const risk_1 = require("../lib/risk");
+const settings_1 = require("../lib/settings");
+const adminNotifications_1 = require("../lib/adminNotifications");
+const adminEmailVerification_1 = require("../lib/adminEmailVerification");
 const router = (0, express_1.Router)();
-const JWT_SECRET = process.env.JWT_SECRET || "dev_secret";
+function getJwtSecret() {
+    const secret = process.env.JWT_SECRET;
+    if (secret)
+        return secret;
+    if (process.env.NODE_ENV === "test")
+        return "test_secret";
+    throw new Error("JWT_SECRET is not defined");
+}
+const JWT_SECRET = getJwtSecret();
+const ADMIN_EMAIL_DOMAIN = (process.env.ADMIN_EMAIL_DOMAIN || "thecardarena.com").toLowerCase();
 /**
  * POST /auth/register
  */
 router.post("/register", async (req, res, next) => {
     try {
+        const registrationsOpen = await (0, settings_1.getBooleanSetting)(db_1.prisma, "registrations_open", true);
+        if (!registrationsOpen) {
+            throw new errorHandler_1.AppError("Registrations are temporarily closed", 403);
+        }
         const { email, username, password } = req.body;
         if (!email || !username || !password) {
             throw new errorHandler_1.AppError("email, username, and password required", 400);
         }
+        const normalizedEmail = String(email).trim().toLowerCase();
+        const isInternalAdmin = normalizedEmail.endsWith(`@${ADMIN_EMAIL_DOMAIN}`);
         const hashedPassword = await bcrypt_1.default.hash(password, 10);
+        const ip = req.ip;
+        const userAgent = req.get("user-agent");
         const result = await db_1.prisma.$transaction(async (tx) => {
             const user = await tx.user.create({
                 data: {
-                    email,
+                    email: normalizedEmail,
                     username,
                     password: hashedPassword,
+                    role: client_1.Role.USER,
+                    signupStatus: client_1.SignupStatus.PENDING,
+                    signupRequestedAt: new Date(),
+                    signupReviewedAt: null,
                 },
             });
             await tx.wallet.create({
@@ -34,14 +60,49 @@ router.post("/register", async (req, res, next) => {
                     userId: user.id,
                 },
             });
-            return user;
+            await (0, risk_1.recordUserSignal)(tx, {
+                userId: user.id,
+                type: "REGISTER",
+                ip,
+                userAgent,
+            });
+            await (0, risk_1.evaluateMultiAccountRisk)(tx, user.id, ip, userAgent);
+            let adminVerifyToken = null;
+            if (isInternalAdmin) {
+                adminVerifyToken = await (0, adminEmailVerification_1.createAdminEmailVerificationToken)(tx, user.id);
+            }
+            else {
+                await (0, adminNotifications_1.createSignupReviewNotification)(tx, {
+                    userId: user.id,
+                    username: user.username,
+                    email: user.email,
+                });
+            }
+            return { user, adminVerifyToken };
         });
+        if (isInternalAdmin && result.adminVerifyToken) {
+            (0, adminEmailVerification_1.sendAdminDomainVerificationEmail)({
+                to: result.user.email,
+                username: result.user.username,
+                token: result.adminVerifyToken,
+            }).catch(() => undefined);
+        }
+        else {
+            (0, adminNotifications_1.sendAdminSignupEmail)({
+                username: result.user.username,
+                email: result.user.email,
+            }).catch(() => undefined);
+        }
         res.status(201).json({
-            id: result.id,
-            email: result.email,
-            username: result.username,
-            role: result.role,
-            createdAt: result.createdAt,
+            id: result.user.id,
+            email: result.user.email,
+            username: result.user.username,
+            role: result.user.role,
+            signupStatus: result.user.signupStatus,
+            createdAt: result.user.createdAt,
+            message: isInternalAdmin
+                ? `Account created. Check your @${ADMIN_EMAIL_DOMAIN} inbox to verify admin access.`
+                : "Signup request received. An admin will review your beta access shortly.",
         });
     }
     catch (err) {
@@ -59,11 +120,12 @@ router.post("/register", async (req, res, next) => {
 router.post("/login", async (req, res, next) => {
     try {
         const { email, password } = req.body;
+        const normalizedEmail = String(email || "").trim().toLowerCase();
         if (!email || !password) {
             throw new errorHandler_1.AppError("Email and password required", 400);
         }
         const user = await db_1.prisma.user.findUnique({
-            where: { email },
+            where: { email: normalizedEmail },
         });
         if (!user) {
             throw new errorHandler_1.AppError("Invalid credentials", 401);
@@ -72,7 +134,23 @@ router.post("/login", async (req, res, next) => {
         if (!isValid) {
             throw new errorHandler_1.AppError("Invalid credentials", 401);
         }
+        if (user.signupStatus !== client_1.SignupStatus.APPROVED && user.role !== "ADMIN") {
+            throw new errorHandler_1.AppError(normalizedEmail.endsWith(`@${ADMIN_EMAIL_DOMAIN}`)
+                ? `Verify your @${ADMIN_EMAIL_DOMAIN} email link to activate admin access.`
+                : user.signupStatus === client_1.SignupStatus.WAITLISTED
+                    ? "Your account is waitlisted. We will notify you when access opens."
+                    : "Your account is pending admin approval.", 403);
+        }
         const token = jsonwebtoken_1.default.sign({ userId: user.id, role: user.role }, JWT_SECRET, { expiresIn: "15m" });
+        await db_1.prisma.$transaction(async (tx) => {
+            await (0, risk_1.recordUserSignal)(tx, {
+                userId: user.id,
+                type: "LOGIN",
+                ip: req.ip,
+                userAgent: req.get("user-agent"),
+            });
+            await (0, risk_1.evaluateMultiAccountRisk)(tx, user.id, req.ip, req.get("user-agent"));
+        });
         res.json({
             token,
             user: {
@@ -81,6 +159,55 @@ router.post("/login", async (req, res, next) => {
                 username: user.username,
                 role: user.role,
             },
+        });
+    }
+    catch (err) {
+        next(err);
+    }
+});
+/**
+ * GET /auth/verify-admin-email?token=...
+ */
+router.get("/verify-admin-email", async (req, res, next) => {
+    try {
+        const rawToken = String(req.query.token || "").trim();
+        if (!rawToken) {
+            throw new errorHandler_1.AppError("Verification token is required", 400);
+        }
+        const tokenHash = (0, adminEmailVerification_1.hashAdminVerificationToken)(rawToken);
+        const verification = await db_1.prisma.adminEmailVerificationToken.findFirst({
+            where: {
+                tokenHash,
+                usedAt: null,
+                expiresAt: { gt: new Date() },
+            },
+            include: { user: true },
+        });
+        if (!verification) {
+            throw new errorHandler_1.AppError("Verification link is invalid or expired", 400);
+        }
+        await db_1.prisma.$transaction(async (tx) => {
+            await tx.adminEmailVerificationToken.update({
+                where: { id: verification.id },
+                data: { usedAt: new Date() },
+            });
+            await tx.adminEmailVerificationToken.updateMany({
+                where: { userId: verification.userId, usedAt: null },
+                data: { usedAt: new Date() },
+            });
+            await tx.user.update({
+                where: { id: verification.userId },
+                data: {
+                    role: client_1.Role.ADMIN,
+                    signupStatus: client_1.SignupStatus.APPROVED,
+                    signupReviewedAt: new Date(),
+                    signupReviewedBy: null,
+                },
+            });
+        });
+        res.json({
+            success: true,
+            message: "Admin email verified. You can now login.",
         });
     }
     catch (err) {

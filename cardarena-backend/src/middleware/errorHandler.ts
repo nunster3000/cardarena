@@ -1,4 +1,5 @@
 import { Request, Response, NextFunction } from "express";
+import { incMetric } from "../monitoring/metrics";
 
 export class AppError extends Error {
   statusCode: number;
@@ -16,6 +17,7 @@ export const errorHandler = (
   next: NextFunction
 ) => {
   console.error(err);
+  incMetric("errors.total");
 
   const statusCode = err.statusCode || 500;
   const message = err.message || "Internal Server Error";

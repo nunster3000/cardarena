@@ -8,8 +8,8 @@
     "start": "node dist/index.js",
     "dev": "ts-node-dev src/index.ts",
     "test": "jest",
-    "test:reset": "dotenv -e .env.test -- prisma migrate reset --force",
-    "test:e2e": "npm run test:reset && jest --runInBand"
+    "test:reset": "prisma migrate reset --force",
+    "test:e2e": "npm run test:reset && jest --runInBand --detectOpenHandles"
   },
   "keywords": [],
   "author": "",
