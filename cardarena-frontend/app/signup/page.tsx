@@ -1,5 +1,6 @@
 ﻿"use client";
 
+import Link from "next/link";
 import { Space_Grotesk } from "next/font/google";
 import { useState } from "react";
 
@@ -224,9 +225,14 @@ export default function SignupPage() {
 
           <p className="mt-6 text-xs text-gray-300">
             Already have an account?{" "}
-            <a href="/login" className="font-semibold text-emerald-300 hover:text-emerald-200">
+            <Link href="/login" className="font-semibold text-emerald-300 hover:text-emerald-200">
               Login
-            </a>
+            </Link>
+          </p>
+          <p className="mt-2 text-xs text-gray-300">
+            <Link href="/" className="font-semibold text-blue-300 hover:text-blue-200">
+              Back Home
+            </Link>
           </p>
         </form>
       </div>

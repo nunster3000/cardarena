@@ -21,9 +21,9 @@ export default function PremiumPage() {
             <h2 className="mt-2 text-2xl font-bold">CardArena Premium</h2>
             <p className="mt-3 text-4xl font-extrabold">$9.99<span className="text-base font-medium text-white/70"> / month</span></p>
             <p className="mt-3 text-sm text-gray-300">Monthly subscription. Cancel any time.</p>
-            <button className="mt-5 w-full rounded-xl bg-gradient-to-r from-cyan-300 via-emerald-300 to-blue-300 py-3 font-semibold text-slate-900 hover:from-fuchsia-300 hover:via-cyan-300 hover:to-emerald-300">
+            <Link href="/signup" className="mt-5 block w-full rounded-xl bg-gradient-to-r from-cyan-300 via-emerald-300 to-blue-300 py-3 text-center font-semibold text-slate-900 hover:from-fuchsia-300 hover:via-cyan-300 hover:to-emerald-300">
               Start Premium
-            </button>
+            </Link>
           </article>
 
           <div className="grid gap-4 md:col-span-2 md:grid-cols-2">
