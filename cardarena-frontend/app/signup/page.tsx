@@ -16,6 +16,16 @@ export default function SignupPage() {
   const [statusMessage, setStatusMessage] = useState("");
   const [submitted, setSubmitted] = useState(false);
 
+  const passwordChecks = {
+    hasLength: password.length >= 8,
+    hasLetter: /[A-Za-z]/.test(password),
+    hasNumber: /\d/.test(password),
+    hasSpecial: /[^A-Za-z0-9]/.test(password),
+    notSameAsUsername:
+      password.trim().toLowerCase() !== username.trim().toLowerCase(),
+  };
+  const passwordValid = Object.values(passwordChecks).every(Boolean);
+
   async function handleSignup(e: React.FormEvent) {
     e.preventDefault();
     setLoading(true);
@@ -129,9 +139,17 @@ export default function SignupPage() {
             required
             minLength={8}
           />
+          <div className="mt-3 rounded-xl border border-white/20 bg-white/5 p-3 text-xs">
+            <p className="mb-2 text-white/80">Password requirements</p>
+            <p className={passwordChecks.hasLength ? "text-emerald-300" : "text-white/70"}>{passwordChecks.hasLength ? "✓" : "○"} At least 8 characters</p>
+            <p className={passwordChecks.hasLetter ? "text-emerald-300" : "text-white/70"}>{passwordChecks.hasLetter ? "✓" : "○"} At least 1 letter</p>
+            <p className={passwordChecks.hasNumber ? "text-emerald-300" : "text-white/70"}>{passwordChecks.hasNumber ? "✓" : "○"} At least 1 number</p>
+            <p className={passwordChecks.hasSpecial ? "text-emerald-300" : "text-white/70"}>{passwordChecks.hasSpecial ? "✓" : "○"} At least 1 special character</p>
+            <p className={passwordChecks.notSameAsUsername ? "text-emerald-300" : "text-white/70"}>{passwordChecks.notSameAsUsername ? "✓" : "○"} Cannot match username</p>
+          </div>
 
           <button
-            disabled={loading}
+            disabled={loading || !passwordValid}
             className="mt-6 w-full rounded-xl bg-gradient-to-r from-cyan-300 via-emerald-300 to-blue-300 py-3 font-semibold text-slate-900 shadow-lg shadow-cyan-500/20 transition-all duration-300 hover:scale-[1.01] hover:from-fuchsia-300 hover:via-cyan-300 hover:to-emerald-300"
           >
             {loading ? "Creating account..." : "Sign Up Free"}

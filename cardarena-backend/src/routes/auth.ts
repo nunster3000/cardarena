@@ -19,6 +19,11 @@ import {
   hashAdminVerificationToken,
   sendAdminDomainVerificationEmail,
 } from "../lib/adminEmailVerification";
+import {
+  createPasswordResetToken,
+  hashPasswordResetToken,
+  sendPasswordResetEmail,
+} from "../lib/passwordReset";
 
 const router = Router();
 
@@ -33,6 +38,35 @@ const JWT_SECRET = getJwtSecret();
 const ADMIN_EMAIL_DOMAIN = (process.env.ADMIN_EMAIL_DOMAIN || "thecardarena.com").toLowerCase();
 const RESEND_ADMIN_VERIFY_MSG =
   "If your account requires admin email verification, a fresh link has been sent.";
+const RESET_MSG =
+  "If an account exists for this email, a password reset email link has been sent.";
+
+function validatePassword(password: string, username: string) {
+  const hasLength = password.length >= 8;
+  const hasLetter = /[A-Za-z]/.test(password);
+  const hasNumber = /\d/.test(password);
+  const hasSpecial = /[^A-Za-z0-9]/.test(password);
+  const notSameAsUsername =
+    password.trim().toLowerCase() !== username.trim().toLowerCase();
+
+  const valid =
+    hasLength &&
+    hasLetter &&
+    hasNumber &&
+    hasSpecial &&
+    notSameAsUsername;
+
+  return {
+    valid,
+    requirements: {
+      hasLength,
+      hasLetter,
+      hasNumber,
+      hasSpecial,
+      notSameAsUsername,
+    },
+  };
+}
 
 /**
  * POST /auth/register
@@ -53,6 +87,14 @@ router.post("/register", async (req, res, next) => {
 
     if (!email || !username || !password) {
       throw new AppError("email, username, and password required", 400);
+    }
+
+    const passwordValidation = validatePassword(String(password), String(username));
+    if (!passwordValidation.valid) {
+      throw new AppError(
+        "Password must be at least 8 characters, include at least 1 letter, 1 number, 1 special character, and cannot match username.",
+        400
+      );
     }
 
     const normalizedEmail = String(email).trim().toLowerCase();
@@ -299,6 +341,102 @@ router.post("/resend-admin-verification", async (req, res, next) => {
     }).catch(() => undefined);
 
     return res.json({ success: true, message: RESEND_ADMIN_VERIFY_MSG });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * POST /auth/forgot-password
+ */
+router.post("/forgot-password", async (req, res, next) => {
+  try {
+    const normalizedEmail = String(req.body.email || "").trim().toLowerCase();
+    if (!normalizedEmail) {
+      throw new AppError("Email is required", 400);
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { email: normalizedEmail },
+    });
+
+    if (!user) {
+      return res.json({ success: true, message: RESET_MSG });
+    }
+
+    const token = await prisma.$transaction(async (tx) => {
+      await (tx as any).passwordResetToken.updateMany({
+        where: { userId: user.id, usedAt: null },
+        data: { usedAt: new Date() },
+      });
+      return createPasswordResetToken(tx as any, user.id);
+    });
+
+    sendPasswordResetEmail({
+      to: user.email,
+      username: user.username,
+      token,
+    }).catch(() => undefined);
+
+    return res.json({ success: true, message: RESET_MSG });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * POST /auth/reset-password
+ */
+router.post("/reset-password", async (req, res, next) => {
+  try {
+    const rawToken = String(req.body.token || "").trim();
+    const password = String(req.body.password || "");
+    if (!rawToken || !password) {
+      throw new AppError("Token and password are required", 400);
+    }
+
+    const tokenHash = hashPasswordResetToken(rawToken);
+    const resetToken = await (prisma as any).passwordResetToken.findFirst({
+      where: {
+        tokenHash,
+        usedAt: null,
+        expiresAt: { gt: new Date() },
+      },
+      include: { user: true },
+    });
+
+    if (!resetToken) {
+      throw new AppError("Reset link is invalid or expired", 400);
+    }
+
+    const passwordValidation = validatePassword(password, resetToken.user.username);
+    if (!passwordValidation.valid) {
+      throw new AppError(
+        "Password must be at least 8 characters, include at least 1 letter, 1 number, 1 special character, and cannot match username.",
+        400
+      );
+    }
+
+    const hashed = await bcrypt.hash(password, 10);
+
+    await prisma.$transaction(async (tx) => {
+      await tx.user.update({
+        where: { id: resetToken.userId },
+        data: { password: hashed },
+      });
+
+      await (tx as any).passwordResetToken.update({
+        where: { id: resetToken.id },
+        data: { usedAt: new Date() },
+      });
+
+      await (tx as any).passwordResetToken.updateMany({
+        where: { userId: resetToken.userId, usedAt: null },
+        data: { usedAt: new Date() },
+      });
+    });
+
+    return res.json({ success: true, message: "Password reset successfully. You can now login." });
   } catch (err) {
     next(err);
   }
