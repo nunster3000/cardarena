@@ -8,6 +8,9 @@ describe("Auth & Wallet Flow", () => {
     email: `testuser_${runId}@example.com`,
     username: `testuser_${runId}`,
     password: "Password123!",
+    dateOfBirth: "2000-01-01",
+    countryCode: "US",
+    region: "California",
   };
 
   it("should register a user and auto-create wallet", async () => {
