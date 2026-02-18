@@ -25,6 +25,7 @@ function getJwtSecret() {
 }
 const JWT_SECRET = getJwtSecret();
 const ADMIN_EMAIL_DOMAIN = (process.env.ADMIN_EMAIL_DOMAIN || "thecardarena.com").toLowerCase();
+const RESEND_ADMIN_VERIFY_MSG = "If your account requires admin email verification, a fresh link has been sent.";
 /**
  * POST /auth/register
  */
@@ -209,6 +210,42 @@ router.get("/verify-admin-email", async (req, res, next) => {
             success: true,
             message: "Admin email verified. You can now login.",
         });
+    }
+    catch (err) {
+        next(err);
+    }
+});
+/**
+ * POST /auth/resend-admin-verification
+ */
+router.post("/resend-admin-verification", async (req, res, next) => {
+    try {
+        const normalizedEmail = String(req.body.email || "").trim().toLowerCase();
+        if (!normalizedEmail) {
+            throw new errorHandler_1.AppError("Email is required", 400);
+        }
+        if (!normalizedEmail.endsWith(`@${ADMIN_EMAIL_DOMAIN}`)) {
+            return res.json({ success: true, message: RESEND_ADMIN_VERIFY_MSG });
+        }
+        const user = await db_1.prisma.user.findUnique({
+            where: { email: normalizedEmail },
+        });
+        if (!user || user.role === client_1.Role.ADMIN || user.signupStatus === client_1.SignupStatus.APPROVED) {
+            return res.json({ success: true, message: RESEND_ADMIN_VERIFY_MSG });
+        }
+        const token = await db_1.prisma.$transaction(async (tx) => {
+            await tx.adminEmailVerificationToken.updateMany({
+                where: { userId: user.id, usedAt: null },
+                data: { usedAt: new Date() },
+            });
+            return (0, adminEmailVerification_1.createAdminEmailVerificationToken)(tx, user.id);
+        });
+        (0, adminEmailVerification_1.sendAdminDomainVerificationEmail)({
+            to: user.email,
+            username: user.username,
+            token,
+        }).catch(() => undefined);
+        return res.json({ success: true, message: RESEND_ADMIN_VERIFY_MSG });
     }
     catch (err) {
         next(err);

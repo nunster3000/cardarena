@@ -31,6 +31,8 @@ function getJwtSecret() {
 
 const JWT_SECRET = getJwtSecret();
 const ADMIN_EMAIL_DOMAIN = (process.env.ADMIN_EMAIL_DOMAIN || "thecardarena.com").toLowerCase();
+const RESEND_ADMIN_VERIFY_MSG =
+  "If your account requires admin email verification, a fresh link has been sent.";
 
 /**
  * POST /auth/register
@@ -255,6 +257,48 @@ router.get("/verify-admin-email", async (req, res, next) => {
       success: true,
       message: "Admin email verified. You can now login.",
     });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * POST /auth/resend-admin-verification
+ */
+router.post("/resend-admin-verification", async (req, res, next) => {
+  try {
+    const normalizedEmail = String(req.body.email || "").trim().toLowerCase();
+    if (!normalizedEmail) {
+      throw new AppError("Email is required", 400);
+    }
+
+    if (!normalizedEmail.endsWith(`@${ADMIN_EMAIL_DOMAIN}`)) {
+      return res.json({ success: true, message: RESEND_ADMIN_VERIFY_MSG });
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { email: normalizedEmail },
+    });
+
+    if (!user || user.role === Role.ADMIN || user.signupStatus === SignupStatus.APPROVED) {
+      return res.json({ success: true, message: RESEND_ADMIN_VERIFY_MSG });
+    }
+
+    const token = await prisma.$transaction(async (tx) => {
+      await (tx as any).adminEmailVerificationToken.updateMany({
+        where: { userId: user.id, usedAt: null },
+        data: { usedAt: new Date() },
+      });
+      return createAdminEmailVerificationToken(tx as any, user.id);
+    });
+
+    sendAdminDomainVerificationEmail({
+      to: user.email,
+      username: user.username,
+      token,
+    }).catch(() => undefined);
+
+    return res.json({ success: true, message: RESEND_ADMIN_VERIFY_MSG });
   } catch (err) {
     next(err);
   }
