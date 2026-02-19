@@ -10,6 +10,7 @@ const bid_1 = require("../game/bid");
 const play_1 = require("../game/play");
 const stateView_1 = require("../game/stateView");
 const metrics_1 = require("../monitoring/metrics");
+const matchmaking_1 = require("../game/matchmaking");
 const router = (0, express_1.Router)();
 router.use(auth_1.authMiddleware);
 async function getPlayerSeat(gameId, userId) {
@@ -48,6 +49,39 @@ router.get("/me/active", async (req, res, next) => {
             return res.json({ data: null });
         }
         res.json({ data: gp.game });
+    }
+    catch (err) {
+        next(err);
+    }
+});
+router.post("/queue/free", async (req, res, next) => {
+    try {
+        await (0, matchmaking_1.joinQueue)(req.userId, 0, async () => undefined, {
+            ip: req.ip || null,
+            userAgent: req.headers["user-agent"] || null,
+            device: req.headers["sec-ch-ua-platform"] ||
+                req.headers["user-agent"] ||
+                null,
+        });
+        res.json({ success: true });
+    }
+    catch (err) {
+        next(err);
+    }
+});
+router.post("/queue/free/cancel", async (req, res, next) => {
+    try {
+        (0, matchmaking_1.leaveQueue)(req.userId, 0);
+        res.json({ success: true });
+    }
+    catch (err) {
+        next(err);
+    }
+});
+router.post("/queue/free/fill-bots", async (req, res, next) => {
+    try {
+        const gameId = await (0, matchmaking_1.forceFillWithBots)(req.userId, 0);
+        res.json({ success: true, gameId });
     }
     catch (err) {
         next(err);

@@ -190,6 +190,7 @@ export default function DashboardPage() {
   const [partyInviteTarget, setPartyInviteTarget] = useState("");
   const [activeGame, setActiveGame] = useState<ActiveGame | null>(null);
   const socketRef = useRef<ReturnType<typeof getGameSocket> | null>(null);
+  const botFillRequestedRef = useRef(false);
 
   const topFriends = useMemo(() => friends.filter((f) => f.isTop), [friends]);
   const walletBalance = Number(me?.wallet?.balance || 0);
@@ -268,12 +269,13 @@ export default function DashboardPage() {
     loadAll().catch((err: unknown) =>
       setMessage(err instanceof Error ? err.message : "Unable to load dashboard")
     );
+    const pollMs = queueingTableId === "free" ? 2000 : 15000;
     const interval = setInterval(() => {
       loadAll().catch(() => undefined);
-    }, 15000);
+    }, pollMs);
     return () => clearInterval(interval);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token]);
+  }, [token, queueingTableId]);
 
   async function saveProfile(payload: { avatarPreset?: string; avatarUrl?: string; bio?: string }) {
     try {
@@ -504,24 +506,37 @@ export default function DashboardPage() {
   function enterGame(gameId: string) {
     setQueueingTableId(null);
     setQueueSeconds(0);
+    botFillRequestedRef.current = false;
     router.push(`/play/${gameId}`);
   }
 
-  function startFreeQueue() {
+  async function startFreeQueue() {
     if (!token) return;
-    setQueueingTableId("free");
-    setQueueSeconds(0);
-    setMessage("Searching free table...");
-    const socket = socketRef.current ?? getGameSocket(token);
-    socketRef.current = socket;
-    socket.emit("find_table", { entryFee: 0 });
+    try {
+      await api("/api/v1/games/queue/free", { method: "POST" });
+      setQueueingTableId("free");
+      setQueueSeconds(0);
+      botFillRequestedRef.current = false;
+      setMessage("Searching free table...");
+      const socket = socketRef.current ?? getGameSocket(token);
+      socketRef.current = socket;
+      socket.emit("find_table", { entryFee: 0 });
+    } catch (err: unknown) {
+      setMessage(err instanceof Error ? err.message : "Unable to start matchmaking");
+    }
   }
 
-  function cancelQueue() {
-    socketRef.current?.emit("cancel_find_table", { entryFee: 0 });
-    setQueueingTableId(null);
-    setQueueSeconds(0);
-    setMessage("Match search canceled.");
+  async function cancelQueue() {
+    try {
+      socketRef.current?.emit("cancel_find_table", { entryFee: 0 });
+      await api("/api/v1/games/queue/free/cancel", { method: "POST" });
+      setQueueingTableId(null);
+      setQueueSeconds(0);
+      botFillRequestedRef.current = false;
+      setMessage("Match search canceled.");
+    } catch (err: unknown) {
+      setMessage(err instanceof Error ? err.message : "Unable to cancel matchmaking");
+    }
   }
 
   function logout() {
@@ -579,9 +594,19 @@ export default function DashboardPage() {
 
   useEffect(() => {
     if (queueingTableId !== "free") return;
-    if (queueSeconds === 15) {
+    if (queueSeconds >= 15 && !botFillRequestedRef.current) {
+      botFillRequestedRef.current = true;
       setMessage("No live opponents found in 15s. Filling open seats with bots now.");
+      api("/api/v1/games/queue/free/fill-bots", { method: "POST" })
+        .then((body) => {
+          if (body?.gameId) {
+            setMessage("Bots seated. Loading table...");
+            enterGame(body.gameId);
+          }
+        })
+        .catch(() => undefined);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [queueSeconds, queueingTableId]);
 
   useEffect(() => {

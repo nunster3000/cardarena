@@ -5,6 +5,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.leaveQueue = leaveQueue;
 exports.getMatchmakingHealth = getMatchmakingHealth;
+exports.forceFillWithBots = forceFillWithBots;
 exports.joinQueue = joinQueue;
 const crypto_1 = __importDefault(require("crypto"));
 const db_1 = require("../db");
@@ -203,6 +204,73 @@ function getMatchmakingHealth() {
             : Object.fromEntries(Object.entries(waitingQueues).map(([fee, players]) => [fee, players.length])),
         pendingCallbacks: redisEnabled ? "local_only" : pendingCallbacks.size,
     };
+}
+async function forceFillWithBots(userId, entryFee = 0) {
+    if (entryFee !== 0)
+        return null;
+    const redis = await (0, redis_1.getRedisClient)();
+    if (redis) {
+        const feeRaw = await redis.get(userQueueKey(userId));
+        if (Number(feeRaw) !== entryFee)
+            return null;
+        const token = crypto_1.default.randomUUID();
+        const acquired = await redis.set(lockKey(entryFee), token, { NX: true, PX: 5000 });
+        if (!acquired)
+            return null;
+        try {
+            const members = await redis.lRange(queueKey(entryFee), 0, -1);
+            if (!members.includes(userId))
+                return null;
+            const others = members.filter((pid) => pid !== userId).slice(0, 3);
+            const players = [userId, ...others];
+            const botCount = Math.max(0, 4 - players.length);
+            for (const pid of players) {
+                await redis.lRem(queueKey(entryFee), 0, pid);
+                await redis.del(userQueueKey(pid));
+                clearBotFillTimer(pid);
+            }
+            const metaRaw = await redis.hMGet(MM_META_HASH, players);
+            const metaByUserId = new Map();
+            players.forEach((pid, idx) => {
+                metaByUserId.set(pid, parseQueueMeta(metaRaw[idx]));
+            });
+            const { game } = await createTournamentWithPlayers(players, entryFee, metaByUserId, botCount);
+            (0, metrics_1.incMetric)("matchmaking.matches.created.total");
+            for (const pid of players) {
+                await redis.hDel(MM_META_HASH, pid);
+                (0, io_1.getIO)().to(`user:${pid}`).emit("match_found", { gameId: game.id });
+            }
+            return game.id;
+        }
+        finally {
+            const current = await redis.get(lockKey(entryFee));
+            if (current === token) {
+                await redis.del(lockKey(entryFee));
+            }
+        }
+    }
+    const queue = waitingQueues[entryFee] || [];
+    if (!queue.length)
+        return null;
+    if (!queue.some((p) => p.userId === userId))
+        return null;
+    const selected = [queue.find((p) => p.userId === userId), ...queue.filter((p) => p.userId !== userId).slice(0, 3)];
+    const selectedIds = new Set(selected.map((p) => p.userId));
+    waitingQueues[entryFee] = queue.filter((p) => !selectedIds.has(p.userId));
+    const players = selected.map((p) => p.userId);
+    const metaByUserId = new Map(selected.map((p) => [p.userId, p.meta]));
+    const botCount = Math.max(0, 4 - players.length);
+    const { game } = await createTournamentWithPlayers(players, entryFee, metaByUserId, botCount);
+    (0, metrics_1.incMetric)("matchmaking.matches.created.total");
+    for (const pid of players) {
+        clearBotFillTimer(pid);
+        const cb = pendingCallbacks.get(pid);
+        if (cb) {
+            await cb({ gameId: game.id, playerIds: players });
+            pendingCallbacks.delete(pid);
+        }
+    }
+    return game.id;
 }
 async function joinQueue(userId, entryFee, onMatch, meta) {
     const redis = await (0, redis_1.getRedisClient)();

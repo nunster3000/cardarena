@@ -8,6 +8,7 @@ import { submitBid } from "../game/bid";
 import { playCard } from "../game/play";
 import { serializeGameStateForSeat } from "../game/stateView";
 import { incMetric } from "../monitoring/metrics";
+import { forceFillWithBots, joinQueue, leaveQueue } from "../game/matchmaking";
 
 const router = Router();
 router.use(authMiddleware);
@@ -50,6 +51,45 @@ router.get("/me/active", async (req: AuthRequest, res, next) => {
     }
 
     res.json({ data: gp.game });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post("/queue/free", async (req: AuthRequest, res, next) => {
+  try {
+    await joinQueue(
+      req.userId!,
+      0,
+      async () => undefined,
+      {
+        ip: req.ip || null,
+        userAgent: (req.headers["user-agent"] as string | undefined) || null,
+        device:
+          (req.headers["sec-ch-ua-platform"] as string | undefined) ||
+          (req.headers["user-agent"] as string | undefined) ||
+          null,
+      }
+    );
+    res.json({ success: true });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post("/queue/free/cancel", async (req: AuthRequest, res, next) => {
+  try {
+    leaveQueue(req.userId!, 0);
+    res.json({ success: true });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post("/queue/free/fill-bots", async (req: AuthRequest, res, next) => {
+  try {
+    const gameId = await forceFillWithBots(req.userId!, 0);
+    res.json({ success: true, gameId });
   } catch (err) {
     next(err);
   }
