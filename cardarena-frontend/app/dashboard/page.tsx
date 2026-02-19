@@ -216,8 +216,6 @@ export default function DashboardPage() {
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${token}`,
-        "Cache-Control": "no-cache",
-        Pragma: "no-cache",
         ...(init.headers || {}),
       },
     });
