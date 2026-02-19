@@ -131,6 +131,15 @@ function registerGameSockets(io) {
                 socket.emit("error", { message: err?.message ?? "Unable to join queue" });
             }
         });
+        socket.on("cancel_find_table", ({ entryFee }) => {
+            const fee = Number(entryFee);
+            if (Number.isFinite(fee)) {
+                (0, matchmaking_1.leaveQueue)(userId, fee);
+            }
+            else {
+                (0, matchmaking_1.leaveQueue)(userId);
+            }
+        });
         socket.on("place_bid", async ({ gameId, bid }) => {
             if (!checkRateLimit(socket.id)) {
                 (0, metrics_1.incMetric)("socket.ratelimit.hit.total");

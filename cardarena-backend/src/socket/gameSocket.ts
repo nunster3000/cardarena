@@ -4,7 +4,7 @@ import { Server, Socket } from "socket.io";
 import { prisma } from "../db";
 import { triggerBotMove } from "../game/bot";
 import { startGame } from "../game/engine";
-import { joinQueue } from "../game/matchmaking";
+import { joinQueue, leaveQueue } from "../game/matchmaking";
 import { serializeGameStateForSeat } from "../game/stateView";
 import { incMetric } from "../monitoring/metrics";
 
@@ -122,6 +122,15 @@ export function registerGameSockets(io: Server) {
       } catch (err: any) {
         incMetric("socket.errors.find_table.total");
         socket.emit("error", { message: err?.message ?? "Unable to join queue" });
+      }
+    });
+
+    socket.on("cancel_find_table", ({ entryFee }) => {
+      const fee = Number(entryFee);
+      if (Number.isFinite(fee)) {
+        leaveQueue(userId, fee);
+      } else {
+        leaveQueue(userId);
       }
     });
 

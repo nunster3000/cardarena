@@ -3,7 +3,8 @@
 import { Space_Grotesk } from "next/font/google";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { closeGameSocket, getGameSocket } from "../../lib/socket";
 import { clearSession, getSession, setRoleView } from "../../lib/session";
 
 const space = Space_Grotesk({ subsets: ["latin"] });
@@ -188,6 +189,7 @@ export default function DashboardPage() {
   const [partyInvites, setPartyInvites] = useState<PartyInvite[]>([]);
   const [partyInviteTarget, setPartyInviteTarget] = useState("");
   const [activeGame, setActiveGame] = useState<ActiveGame | null>(null);
+  const socketRef = useRef<ReturnType<typeof getGameSocket> | null>(null);
 
   const topFriends = useMemo(() => friends.filter((f) => f.isTop), [friends]);
   const walletBalance = Number(me?.wallet?.balance || 0);
@@ -499,16 +501,23 @@ export default function DashboardPage() {
   }
 
   function enterGame(gameId: string) {
+    setQueueingTableId(null);
+    setQueueSeconds(0);
     router.push(`/play/${gameId}`);
   }
 
   function startFreeQueue() {
+    if (!token) return;
     setQueueingTableId("free");
     setQueueSeconds(0);
     setMessage("Searching free table...");
+    const socket = socketRef.current ?? getGameSocket(token);
+    socketRef.current = socket;
+    socket.emit("find_table", { entryFee: 0 });
   }
 
   function cancelQueue() {
+    socketRef.current?.emit("cancel_find_table", { entryFee: 0 });
     setQueueingTableId(null);
     setQueueSeconds(0);
     setMessage("Match search canceled.");
@@ -573,6 +582,36 @@ export default function DashboardPage() {
       setMessage("No live opponents found in 15s. Filling open seats with bots now.");
     }
   }, [queueSeconds, queueingTableId]);
+
+  useEffect(() => {
+    if (!token) return;
+
+    const socket = getGameSocket(token);
+    socketRef.current = socket;
+
+    const onMatchFound = (payload: { gameId?: string }) => {
+      if (!payload?.gameId) return;
+      setMessage("Match found. Loading table...");
+      enterGame(payload.gameId);
+    };
+
+    const onSocketError = (payload: { message?: string }) => {
+      setQueueingTableId(null);
+      setQueueSeconds(0);
+      setMessage(payload?.message || "Matchmaking connection error.");
+    };
+
+    socket.on("match_found", onMatchFound);
+    socket.on("error", onSocketError);
+
+    return () => {
+      socket.off("match_found", onMatchFound);
+      socket.off("error", onSocketError);
+      closeGameSocket();
+      socketRef.current = null;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token]);
 
   useEffect(() => {
     if (!party) return;
@@ -1049,10 +1088,6 @@ export default function DashboardPage() {
                           queuePartyForFreeTable();
                           return;
                         }
-                        if (freeTournament?.id) {
-                          joinTournament(freeTournament.id);
-                          return;
-                        }
                         startFreeQueue();
                       }}
                       className="rounded-lg bg-[linear-gradient(110deg,#22d3ee,#60a5fa,#34d399)] bg-[length:200%_200%] px-4 py-2 text-sm font-semibold text-slate-950 transition-all duration-300 hover:scale-[1.02] hover:bg-[position:100%_0%] disabled:cursor-not-allowed disabled:bg-none disabled:bg-slate-500/50 disabled:text-slate-200"
@@ -1124,6 +1159,38 @@ export default function DashboardPage() {
             </div>
           </div>
         </section>
+
+        {queueingTableId === "free" && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/75 backdrop-blur-sm">
+            <div className="w-[92%] max-w-md rounded-2xl border border-emerald-300/30 bg-slate-900/90 p-6 text-center">
+              <p className="text-xs font-semibold uppercase tracking-wide text-emerald-300">Searching Free Table</p>
+              <h3 className="mt-2 text-2xl font-extrabold">Waiting For Opponents</h3>
+              <p className="mt-2 text-sm text-white/75">
+                {queueSeconds < 15
+                  ? `Queue time: ${queueSeconds}s`
+                  : "No full lobby yet. Filling open seats with bots..."}
+              </p>
+              <div className="mt-5 h-2 w-full overflow-hidden rounded-full bg-white/10">
+                <div
+                  className="h-full rounded-full bg-[linear-gradient(110deg,#22d3ee,#60a5fa,#34d399)] transition-all"
+                  style={{ width: `${Math.min(100, (queueSeconds / 15) * 100)}%` }}
+                />
+              </div>
+              <button
+                onClick={() => {
+                  if (freeQueueMode === "FRIENDS" && party?.isLeader) {
+                    cancelPartyQueue();
+                    return;
+                  }
+                  cancelQueue();
+                }}
+                className="mt-5 rounded-lg border border-white/20 bg-white/10 px-4 py-2 text-sm font-semibold hover:bg-white/20"
+              >
+                Cancel Search
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </main>
   );

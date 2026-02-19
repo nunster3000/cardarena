@@ -6,20 +6,21 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.leaveQueue = leaveQueue;
 exports.getMatchmakingHealth = getMatchmakingHealth;
 exports.joinQueue = joinQueue;
+const crypto_1 = __importDefault(require("crypto"));
 const db_1 = require("../db");
 const engine_1 = require("./engine");
 const gameplayLog_1 = require("../lib/gameplayLog");
 const metrics_1 = require("../monitoring/metrics");
 const io_1 = require("../socket/io");
 const redis_1 = require("../lib/redis");
-const crypto_1 = __importDefault(require("crypto"));
 const waitingQueues = {};
-// key = entryFee, value = array of userIds
 const pendingCallbacks = new Map();
+const botFillTimers = new Map();
 const MM_QUEUE_PREFIX = "mm:queue:";
 const MM_USER_QUEUE_PREFIX = "mm:user:";
 const MM_META_HASH = "mm:meta";
 const MM_MATCH_LOCK_PREFIX = "mm:lock:";
+const BOT_FILL_DELAY_MS = 15000;
 function queueKey(entryFee) {
     return `${MM_QUEUE_PREFIX}${entryFee}`;
 }
@@ -28,6 +29,23 @@ function userQueueKey(userId) {
 }
 function lockKey(entryFee) {
     return `${MM_MATCH_LOCK_PREFIX}${entryFee}`;
+}
+function clearBotFillTimer(userId) {
+    const timer = botFillTimers.get(userId);
+    if (!timer)
+        return;
+    clearTimeout(timer);
+    botFillTimers.delete(userId);
+}
+function parseQueueMeta(raw) {
+    if (!raw)
+        return undefined;
+    try {
+        return JSON.parse(raw);
+    }
+    catch {
+        return undefined;
+    }
 }
 async function leaveQueueRedis(userId, entryFee) {
     const client = await (0, redis_1.getRedisClient)();
@@ -38,6 +56,89 @@ async function leaveQueueRedis(userId, entryFee) {
         await client.lRem(queueKey(Number(knownFeeRaw)), 0, userId);
     }
     await Promise.all([client.del(userQueueKey(userId)), client.hDel(MM_META_HASH, userId)]);
+}
+function scheduleBotFillMemory(entryFee, userId) {
+    if (entryFee !== 0)
+        return;
+    clearBotFillTimer(userId);
+    const timer = setTimeout(() => {
+        void tryFillWithBotsMemory(entryFee, userId);
+    }, BOT_FILL_DELAY_MS);
+    botFillTimers.set(userId, timer);
+}
+async function tryFillWithBotsMemory(entryFee, queuedUserId) {
+    if (entryFee !== 0)
+        return;
+    const queue = waitingQueues[entryFee] || [];
+    if (!queue.some((p) => p.userId === queuedUserId))
+        return;
+    const playersWithMeta = queue.splice(0, Math.min(4, queue.length));
+    if (!playersWithMeta.length)
+        return;
+    const players = playersWithMeta.map((p) => p.userId);
+    const botCount = Math.max(0, 4 - players.length);
+    const metaByUserId = new Map(playersWithMeta.map((p) => [p.userId, p.meta]));
+    const { game } = await createTournamentWithPlayers(players, entryFee, metaByUserId, botCount);
+    (0, metrics_1.incMetric)("matchmaking.matches.created.total");
+    for (const pid of players) {
+        clearBotFillTimer(pid);
+        const cb = pendingCallbacks.get(pid);
+        if (!cb)
+            continue;
+        await cb({ gameId: game.id, playerIds: players });
+        pendingCallbacks.delete(pid);
+    }
+}
+async function tryFillWithBotsRedis(entryFee, queuedUserId, onMatch) {
+    if (entryFee !== 0)
+        return;
+    clearBotFillTimer(queuedUserId);
+    const client = await (0, redis_1.getRedisClient)();
+    if (!client)
+        return;
+    const timer = setTimeout(() => {
+        void (async () => {
+            const members = await client.lRange(queueKey(entryFee), 0, -1);
+            if (!members.includes(queuedUserId))
+                return;
+            const token = crypto_1.default.randomUUID();
+            const acquired = await client.set(lockKey(entryFee), token, { NX: true, PX: 5000 });
+            if (!acquired)
+                return;
+            try {
+                const current = await client.lRange(queueKey(entryFee), 0, 3);
+                if (!current.length)
+                    return;
+                await client.lTrim(queueKey(entryFee), current.length, -1);
+                for (const pid of current) {
+                    await client.del(userQueueKey(pid));
+                    clearBotFillTimer(pid);
+                }
+                const metaRaw = await client.hMGet(MM_META_HASH, current);
+                const metaByUserId = new Map();
+                current.forEach((pid, idx) => {
+                    metaByUserId.set(pid, parseQueueMeta(metaRaw[idx]));
+                });
+                const botCount = Math.max(0, 4 - current.length);
+                const { game } = await createTournamentWithPlayers(current, entryFee, metaByUserId, botCount);
+                (0, metrics_1.incMetric)("matchmaking.matches.created.total");
+                for (const pid of current) {
+                    await client.hDel(MM_META_HASH, pid);
+                    (0, io_1.getIO)().to(`user:${pid}`).emit("match_found", { gameId: game.id });
+                }
+                if (onMatch && current.includes(queuedUserId)) {
+                    await onMatch({ gameId: game.id, playerIds: current });
+                }
+            }
+            finally {
+                const currentToken = await client.get(lockKey(entryFee));
+                if (currentToken === token) {
+                    await client.del(lockKey(entryFee));
+                }
+            }
+        })().catch(() => undefined);
+    }, BOT_FILL_DELAY_MS);
+    botFillTimers.set(queuedUserId, timer);
 }
 async function tryMatchRedis(entryFee, queuedUserId, onMatch) {
     const client = await (0, redis_1.getRedisClient)();
@@ -55,23 +156,14 @@ async function tryMatchRedis(entryFee, queuedUserId, onMatch) {
             await client.lTrim(queueKey(entryFee), 4, -1);
             for (const pid of players) {
                 await client.del(userQueueKey(pid));
+                clearBotFillTimer(pid);
             }
             const metaRaw = await client.hMGet(MM_META_HASH, players);
             const metaByUserId = new Map();
             players.forEach((pid, idx) => {
-                const raw = metaRaw[idx];
-                if (!raw) {
-                    metaByUserId.set(pid, undefined);
-                    return;
-                }
-                try {
-                    metaByUserId.set(pid, JSON.parse(raw));
-                }
-                catch {
-                    metaByUserId.set(pid, undefined);
-                }
+                metaByUserId.set(pid, parseQueueMeta(metaRaw[idx]));
             });
-            const { game } = await createTournamentWithPlayers(players, entryFee, metaByUserId);
+            const { game } = await createTournamentWithPlayers(players, entryFee, metaByUserId, 0);
             (0, metrics_1.incMetric)("matchmaking.matches.created.total");
             for (const pid of players) {
                 await client.hDel(MM_META_HASH, pid);
@@ -90,6 +182,7 @@ async function tryMatchRedis(entryFee, queuedUserId, onMatch) {
     }
 }
 function leaveQueue(userId, entryFee) {
+    clearBotFillTimer(userId);
     if ((0, redis_1.hasRedisUrl)()) {
         void leaveQueueRedis(userId, entryFee).catch(() => undefined);
     }
@@ -132,7 +225,8 @@ async function joinQueue(userId, entryFee, onMatch, meta) {
     if (user.wallet.isFrozen)
         throw new Error("Wallet is frozen");
     if (redis) {
-        await redis.multi()
+        await redis
+            .multi()
             .lRem(queueKey(entryFee), 0, userId)
             .rPush(queueKey(entryFee), userId)
             .set(userQueueKey(userId), String(entryFee), { EX: 3600 })
@@ -148,12 +242,12 @@ async function joinQueue(userId, entryFee, onMatch, meta) {
             metadata: { entryFee, source: "socket" },
         });
         await tryMatchRedis(entryFee, userId, onMatch);
+        await tryFillWithBotsRedis(entryFee, userId, onMatch);
         return;
     }
     if (!waitingQueues[entryFee])
         waitingQueues[entryFee] = [];
     pendingCallbacks.set(userId, onMatch);
-    // prevent duplicates
     if (waitingQueues[entryFee].some((p) => p.userId === userId))
         return;
     waitingQueues[entryFee].push({ userId, meta });
@@ -170,9 +264,10 @@ async function joinQueue(userId, entryFee, onMatch, meta) {
         const playersWithMeta = waitingQueues[entryFee].splice(0, 4);
         const players = playersWithMeta.map((p) => p.userId);
         const metaByUserId = new Map(playersWithMeta.map((p) => [p.userId, p.meta]));
-        const { game } = await createTournamentWithPlayers(players, entryFee, metaByUserId);
+        const { game } = await createTournamentWithPlayers(players, entryFee, metaByUserId, 0);
         (0, metrics_1.incMetric)("matchmaking.matches.created.total");
         for (const pid of players) {
+            clearBotFillTimer(pid);
             const cb = pendingCallbacks.get(pid);
             if (!cb)
                 continue;
@@ -180,10 +275,13 @@ async function joinQueue(userId, entryFee, onMatch, meta) {
             pendingCallbacks.delete(pid);
         }
     }
+    else {
+        scheduleBotFillMemory(entryFee, userId);
+    }
 }
-async function createTournamentWithPlayers(players, entryFee, metaByUserId) {
-    return await db_1.prisma.$transaction(async (tx) => {
-        // 1️⃣ Create tournament
+async function createTournamentWithPlayers(players, entryFee, metaByUserId, botCount) {
+    return await db_1.prisma
+        .$transaction(async (tx) => {
         const tournament = await tx.tournament.create({
             data: {
                 entryFee,
@@ -191,7 +289,6 @@ async function createTournamentWithPlayers(players, entryFee, metaByUserId) {
                 status: "FULL",
             },
         });
-        // 2️⃣ Create entries
         for (let i = 0; i < players.length; i++) {
             await tx.tournamentEntry.create({
                 data: {
@@ -210,7 +307,6 @@ async function createTournamentWithPlayers(players, entryFee, metaByUserId) {
                 metadata: { entryFee, source: "matchmaking_queue" },
             });
         }
-        // 3️⃣ Create game record
         const game = await tx.game.create({
             data: {
                 tournamentId: tournament.id,
@@ -221,30 +317,34 @@ async function createTournamentWithPlayers(players, entryFee, metaByUserId) {
                 state: {},
             },
         });
-        // 4️⃣ Create GamePlayer seats
-        for (let i = 0; i < players.length; i++) {
+        const totalSeats = players.length + botCount;
+        for (let i = 0; i < totalSeats; i++) {
+            const userId = i < players.length ? players[i] : null;
             await tx.gamePlayer.create({
                 data: {
                     gameId: game.id,
-                    userId: players[i],
+                    userId,
                     team: i % 2 === 0 ? "TEAM_A" : "TEAM_B",
                     seat: i + 1,
+                    isBot: userId === null,
                 },
             });
-            await (0, gameplayLog_1.recordGameplayLog)(tx, {
-                userId: players[i],
-                tournamentId: tournament.id,
-                gameId: game.id,
-                eventType: "GAME_MATCHED",
-                ip: metaByUserId.get(players[i])?.ip ?? null,
-                userAgent: metaByUserId.get(players[i])?.userAgent ?? null,
-                device: metaByUserId.get(players[i])?.device ?? null,
-                metadata: { entryFee, source: "matchmaking_queue" },
-            });
+            if (userId) {
+                await (0, gameplayLog_1.recordGameplayLog)(tx, {
+                    userId,
+                    tournamentId: tournament.id,
+                    gameId: game.id,
+                    eventType: "GAME_MATCHED",
+                    ip: metaByUserId.get(userId)?.ip ?? null,
+                    userAgent: metaByUserId.get(userId)?.userAgent ?? null,
+                    device: metaByUserId.get(userId)?.device ?? null,
+                    metadata: { entryFee, source: "matchmaking_queue" },
+                });
+            }
         }
         return { tournament, game };
-    }).then(async ({ tournament, game }) => {
-        // 5️⃣ Start the game AFTER transaction completes
+    })
+        .then(async ({ tournament, game }) => {
         const initialState = await (0, engine_1.startGame)(game.id);
         return { tournament, game, initialState };
     });
