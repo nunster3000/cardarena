@@ -23,6 +23,7 @@ import { errorHandler } from "./middleware/errorHandler";
 import { metricsHandler, metricsMiddleware } from "./monitoring/metrics";
 
 export const app = express();
+app.disable("etag");
 const trustProxySetting = process.env.TRUST_PROXY
   ? process.env.TRUST_PROXY === "true"
     ? 1

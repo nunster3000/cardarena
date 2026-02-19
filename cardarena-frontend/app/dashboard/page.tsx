@@ -212,9 +212,12 @@ export default function DashboardPage() {
   async function api(path: string, init: RequestInit = {}) {
     const res = await fetch(`${API_BASE}${path}`, {
       ...init,
+      cache: "no-store",
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${token}`,
+        "Cache-Control": "no-cache",
+        Pragma: "no-cache",
         ...(init.headers || {}),
       },
     });

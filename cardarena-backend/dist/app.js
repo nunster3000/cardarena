@@ -27,6 +27,7 @@ const withdrawalProcessor_1 = __importDefault(require("./routes/withdrawalProces
 const errorHandler_1 = require("./middleware/errorHandler");
 const metrics_1 = require("./monitoring/metrics");
 exports.app = (0, express_1.default)();
+exports.app.disable("etag");
 const trustProxySetting = process.env.TRUST_PROXY
     ? process.env.TRUST_PROXY === "true"
         ? 1
