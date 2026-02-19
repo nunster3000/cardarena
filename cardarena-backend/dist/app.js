@@ -19,6 +19,7 @@ const withdrawals_1 = __importDefault(require("./routes/withdrawals"));
 const connect_1 = __importDefault(require("./routes/connect"));
 const tournaments_1 = __importDefault(require("./routes/tournaments"));
 const party_1 = __importDefault(require("./routes/party"));
+const games_1 = __importDefault(require("./routes/games"));
 const adminFinance_1 = __importDefault(require("./routes/adminFinance"));
 const adminRisk_1 = __importDefault(require("./routes/adminRisk"));
 const webhook_1 = __importDefault(require("./routes/webhook"));
@@ -26,7 +27,14 @@ const withdrawalProcessor_1 = __importDefault(require("./routes/withdrawalProces
 const errorHandler_1 = require("./middleware/errorHandler");
 const metrics_1 = require("./monitoring/metrics");
 exports.app = (0, express_1.default)();
-exports.app.set("trust proxy", true);
+const trustProxySetting = process.env.TRUST_PROXY
+    ? process.env.TRUST_PROXY === "true"
+        ? 1
+        : process.env.TRUST_PROXY
+    : process.env.NODE_ENV === "production"
+        ? 1
+        : false;
+exports.app.set("trust proxy", trustProxySetting);
 exports.app.use((0, pino_http_1.default)({ logger: logger_1.logger }));
 exports.app.use(metrics_1.metricsMiddleware);
 exports.app.use("/api/v1/webhook", express_1.default.raw({ type: "application/json" }), webhook_1.default);
@@ -38,9 +46,14 @@ const allowedOrigins = (process.env.ALLOWED_ORIGINS ||
     .split(",")
     .map((o) => o.trim())
     .filter(Boolean);
+const safeAllowedOrigins = process.env.NODE_ENV === "production" &&
+    !process.env.ALLOWED_ORIGINS &&
+    !process.env.FRONTEND_BASE_URL
+    ? []
+    : allowedOrigins;
 exports.app.use((req, res, next) => {
     const origin = req.headers.origin;
-    if (origin && allowedOrigins.includes(origin)) {
+    if (origin && safeAllowedOrigins.includes(origin)) {
         res.header("Access-Control-Allow-Origin", origin);
         res.header("Vary", "Origin");
         res.header("Access-Control-Allow-Credentials", "true");
@@ -81,6 +94,7 @@ exports.app.use("/api/connect", connect_1.default);
 exports.app.use("/api/v1/connect", connect_1.default);
 exports.app.use("/api/v1/tournaments", tournaments_1.default);
 exports.app.use("/api/v1/party", party_1.default);
+exports.app.use("/api/v1/games", games_1.default);
 exports.app.use("/api/admin/finance", adminFinance_1.default);
 exports.app.use("/api/v1/admin/finance", adminFinance_1.default);
 exports.app.use("/api/v1/admin/risk", adminRisk_1.default);

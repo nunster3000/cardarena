@@ -5,9 +5,9 @@ exports.submitBid = submitBid;
 const db_1 = require("../db");
 const client_1 = require("@prisma/client");
 const bot_1 = require("./bot");
-const io_1 = require("../socket/io");
 const gameLocks_1 = require("./gameLocks");
 const turnManager_1 = require("./turnManager");
+const emitGameState_1 = require("./emitGameState");
 async function submitBid(gameId, playerSeat, bidValue) {
     return (0, gameLocks_1.withGameLock)(gameId, async () => {
         const game = await db_1.prisma.game.findUnique({
@@ -55,7 +55,7 @@ async function submitBid(gameId, playerSeat, bidValue) {
             },
         });
         const updatedState = state;
-        (0, io_1.getIO)().to(gameId).emit("game_state", updatedState);
+        await (0, emitGameState_1.emitGameStateForGame)(gameId, updatedState);
         (0, turnManager_1.startTurnTimer)(gameId);
         await (0, bot_1.triggerBotMove)(gameId);
         return state;

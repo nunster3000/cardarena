@@ -4,7 +4,7 @@ import { prisma } from "../db";
 import { GamePhase, GameStatus } from "@prisma/client";
 import { Prisma } from "@prisma/client";
 import { settleTournamentFromGame } from "./tournamentSettlement";
-import { getIO } from "../socket/io";
+import { emitGameStateForGame } from "./emitGameState";
 
 export async function resolveHand(gameId: string) {
   const game = await prisma.game.findUnique({
@@ -71,7 +71,7 @@ export async function resolveHand(gameId: string) {
     });
 
     const updatedState = state;
-    getIO().to(gameId).emit("game_state", updatedState);
+    await emitGameStateForGame(gameId, updatedState);
 
     // Auto-settle tournament
     await settleTournamentFromGame(gameId);
@@ -101,7 +101,7 @@ export async function resolveHand(gameId: string) {
   });
 
   const updatedState = state;
-  getIO().to(gameId).emit("game_state", updatedState);
+  await emitGameStateForGame(gameId, updatedState);
 
   return state;
 }

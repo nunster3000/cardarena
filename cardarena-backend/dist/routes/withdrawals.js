@@ -9,6 +9,7 @@ const errorHandler_1 = require("../middleware/errorHandler");
 const auth_1 = require("../middleware/auth");
 const metrics_1 = require("../monitoring/metrics");
 const userComms_1 = require("../lib/userComms");
+const requestMeta_1 = require("../lib/requestMeta");
 const router = (0, express_1.Router)();
 const MIN_WITHDRAWAL = 2500;
 const WITHDRAWAL_FEE = 500;
@@ -44,14 +45,16 @@ router.post("/", auth_1.authMiddleware, async (req, res, next) => {
         if (!user.stripeAccountId || !user.stripeOnboarded) {
             throw new errorHandler_1.AppError("Complete Stripe payout verification before withdrawing funds.", 400);
         }
+        const meta = (0, requestMeta_1.getRequestMeta)(req);
         await db_1.prisma.$transaction(async (tx) => {
             await (0, risk_1.recordUserSignal)(tx, {
                 userId: req.userId,
                 type: "WITHDRAW",
-                ip: req.ip,
-                userAgent: req.get("user-agent"),
+                ip: meta.ip,
+                userAgent: meta.userAgent,
+                device: meta.device,
             });
-            await (0, risk_1.evaluateMultiAccountRisk)(tx, req.userId, req.ip, req.get("user-agent"));
+            await (0, risk_1.evaluateMultiAccountRisk)(tx, req.userId, meta.ip, meta.userAgent);
         });
         const startOfDay = new Date();
         startOfDay.setHours(0, 0, 0, 0);

@@ -24,6 +24,7 @@ import {
   hashPasswordResetToken,
   sendPasswordResetEmail,
 } from "../lib/passwordReset";
+import { getRequestMeta } from "../lib/requestMeta";
 
 const router = Router();
 
@@ -127,10 +128,22 @@ router.post("/register", async (req, res, next) => {
       throw new AppError("Registrations are temporarily closed", 403);
     }
 
-    const { email, username, password, dateOfBirth, countryCode, region } = req.body;
+    const {
+      email,
+      username,
+      password,
+      dateOfBirth,
+      countryCode,
+      region,
+      acceptedTerms,
+      acceptedPrivacy,
+    } = req.body;
 
     if (!email || !username || !password || !dateOfBirth || !countryCode || !region) {
       throw new AppError("email, username, password, dateOfBirth, countryCode, and region are required", 400);
+    }
+    if (acceptedTerms !== true || acceptedPrivacy !== true) {
+      throw new AppError("You must accept the Terms of Service and Privacy Policy", 400);
     }
 
     const passwordValidation = validatePassword(String(password), String(username));
@@ -149,8 +162,7 @@ router.post("/register", async (req, res, next) => {
 
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    const ip = req.ip;
-    const userAgent = req.get("user-agent");
+    const meta = getRequestMeta(req);
 
     const result = await prisma.$transaction(async (tx) => {
       const user = await tx.user.create({
@@ -165,6 +177,8 @@ router.post("/register", async (req, res, next) => {
           signupStatus: SignupStatus.PENDING,
           signupRequestedAt: new Date(),
           signupReviewedAt: null,
+          termsAcceptedAt: new Date(),
+          privacyAcceptedAt: new Date(),
         },
       });
 
@@ -177,11 +191,12 @@ router.post("/register", async (req, res, next) => {
       await recordUserSignal(tx, {
         userId: user.id,
         type: "REGISTER",
-        ip,
-        userAgent,
+        ip: meta.ip,
+        userAgent: meta.userAgent,
+        device: meta.device,
       });
 
-      await evaluateMultiAccountRisk(tx, user.id, ip, userAgent);
+      await evaluateMultiAccountRisk(tx, user.id, meta.ip, meta.userAgent);
       let adminVerifyToken: string | null = null;
       if (isInternalAdmin) {
         adminVerifyToken = await createAdminEmailVerificationToken(tx, user.id);
@@ -276,13 +291,15 @@ router.post("/login", async (req, res, next) => {
     );
 
     await prisma.$transaction(async (tx) => {
+      const meta = getRequestMeta(req);
       await recordUserSignal(tx, {
         userId: user.id,
         type: "LOGIN",
-        ip: req.ip,
-        userAgent: req.get("user-agent"),
+        ip: meta.ip,
+        userAgent: meta.userAgent,
+        device: meta.device,
       });
-      await evaluateMultiAccountRisk(tx, user.id, req.ip, req.get("user-agent"));
+      await evaluateMultiAccountRisk(tx, user.id, meta.ip, meta.userAgent);
     });
 
     res.json({

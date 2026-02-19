@@ -15,6 +15,7 @@ const settings_1 = require("../lib/settings");
 const adminNotifications_1 = require("../lib/adminNotifications");
 const adminEmailVerification_1 = require("../lib/adminEmailVerification");
 const passwordReset_1 = require("../lib/passwordReset");
+const requestMeta_1 = require("../lib/requestMeta");
 const router = (0, express_1.Router)();
 function getJwtSecret() {
     const secret = process.env.JWT_SECRET;
@@ -99,9 +100,12 @@ router.post("/register", async (req, res, next) => {
         if (!registrationsOpen) {
             throw new errorHandler_1.AppError("Registrations are temporarily closed", 403);
         }
-        const { email, username, password, dateOfBirth, countryCode, region } = req.body;
+        const { email, username, password, dateOfBirth, countryCode, region, acceptedTerms, acceptedPrivacy, } = req.body;
         if (!email || !username || !password || !dateOfBirth || !countryCode || !region) {
             throw new errorHandler_1.AppError("email, username, password, dateOfBirth, countryCode, and region are required", 400);
+        }
+        if (acceptedTerms !== true || acceptedPrivacy !== true) {
+            throw new errorHandler_1.AppError("You must accept the Terms of Service and Privacy Policy", 400);
         }
         const passwordValidation = validatePassword(String(password), String(username));
         if (!passwordValidation.valid) {
@@ -113,8 +117,7 @@ router.post("/register", async (req, res, next) => {
         const parsedRegion = parseRegion(region);
         const isInternalAdmin = normalizedEmail.endsWith(`@${ADMIN_EMAIL_DOMAIN}`);
         const hashedPassword = await bcrypt_1.default.hash(password, 10);
-        const ip = req.ip;
-        const userAgent = req.get("user-agent");
+        const meta = (0, requestMeta_1.getRequestMeta)(req);
         const result = await db_1.prisma.$transaction(async (tx) => {
             const user = await tx.user.create({
                 data: {
@@ -128,6 +131,8 @@ router.post("/register", async (req, res, next) => {
                     signupStatus: client_1.SignupStatus.PENDING,
                     signupRequestedAt: new Date(),
                     signupReviewedAt: null,
+                    termsAcceptedAt: new Date(),
+                    privacyAcceptedAt: new Date(),
                 },
             });
             await tx.wallet.create({
@@ -138,10 +143,11 @@ router.post("/register", async (req, res, next) => {
             await (0, risk_1.recordUserSignal)(tx, {
                 userId: user.id,
                 type: "REGISTER",
-                ip,
-                userAgent,
+                ip: meta.ip,
+                userAgent: meta.userAgent,
+                device: meta.device,
             });
-            await (0, risk_1.evaluateMultiAccountRisk)(tx, user.id, ip, userAgent);
+            await (0, risk_1.evaluateMultiAccountRisk)(tx, user.id, meta.ip, meta.userAgent);
             let adminVerifyToken = null;
             if (isInternalAdmin) {
                 adminVerifyToken = await (0, adminEmailVerification_1.createAdminEmailVerificationToken)(tx, user.id);
@@ -218,13 +224,15 @@ router.post("/login", async (req, res, next) => {
         }
         const token = jsonwebtoken_1.default.sign({ userId: user.id, role: user.role }, JWT_SECRET, { expiresIn: "15m" });
         await db_1.prisma.$transaction(async (tx) => {
+            const meta = (0, requestMeta_1.getRequestMeta)(req);
             await (0, risk_1.recordUserSignal)(tx, {
                 userId: user.id,
                 type: "LOGIN",
-                ip: req.ip,
-                userAgent: req.get("user-agent"),
+                ip: meta.ip,
+                userAgent: meta.userAgent,
+                device: meta.device,
             });
-            await (0, risk_1.evaluateMultiAccountRisk)(tx, user.id, req.ip, req.get("user-agent"));
+            await (0, risk_1.evaluateMultiAccountRisk)(tx, user.id, meta.ip, meta.userAgent);
         });
         res.json({
             token,

@@ -11,6 +11,7 @@ const stripe_1 = require("../lib/stripe");
 const auth_1 = require("../middleware/auth");
 const risk_1 = require("../lib/risk");
 const userComms_1 = require("../lib/userComms");
+const requestMeta_1 = require("../lib/requestMeta");
 const router = (0, express_1.Router)();
 const DAILY_DEPOSIT_LIMIT = 50000;
 const MONTHLY_DEPOSIT_LIMIT = 250000;
@@ -33,14 +34,16 @@ router.post("/", auth_1.authMiddleware, async (req, res, next) => {
         if (user.wallet?.isFrozen) {
             throw new errorHandler_1.AppError("Wallet is frozen. Deposits are disabled.", 403);
         }
+        const meta = (0, requestMeta_1.getRequestMeta)(req);
         await db_1.prisma.$transaction(async (tx) => {
             await (0, risk_1.recordUserSignal)(tx, {
                 userId: req.userId,
                 type: "DEPOSIT",
-                ip: req.ip,
-                userAgent: req.get("user-agent"),
+                ip: meta.ip,
+                userAgent: meta.userAgent,
+                device: meta.device,
             });
-            await (0, risk_1.evaluateMultiAccountRisk)(tx, req.userId, req.ip, req.get("user-agent"));
+            await (0, risk_1.evaluateMultiAccountRisk)(tx, req.userId, meta.ip, meta.userAgent);
         });
         const startOfDay = new Date();
         startOfDay.setHours(0, 0, 0, 0);
@@ -123,6 +126,17 @@ router.post("/checkout", auth_1.authMiddleware, async (req, res, next) => {
         if (user.isFrozen || user.wallet?.isFrozen) {
             throw new errorHandler_1.AppError("Account or wallet is frozen. Deposits are disabled.", 403);
         }
+        const meta = (0, requestMeta_1.getRequestMeta)(req);
+        await db_1.prisma.$transaction(async (tx) => {
+            await (0, risk_1.recordUserSignal)(tx, {
+                userId: req.userId,
+                type: "DEPOSIT",
+                ip: meta.ip,
+                userAgent: meta.userAgent,
+                device: meta.device,
+            });
+            await (0, risk_1.evaluateMultiAccountRisk)(tx, req.userId, meta.ip, meta.userAgent);
+        });
         const deposit = await db_1.prisma.deposit.create({
             data: {
                 userId: req.userId,

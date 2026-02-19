@@ -14,6 +14,8 @@ export default function SignupPage() {
   const [dateOfBirth, setDateOfBirth] = useState("");
   const [countryCode, setCountryCode] = useState("US");
   const [region, setRegion] = useState("");
+  const [acceptedTerms, setAcceptedTerms] = useState(false);
+  const [acceptedPrivacy, setAcceptedPrivacy] = useState(false);
   const [loading, setLoading] = useState(false);
   const [resending, setResending] = useState(false);
   const [error, setError] = useState("");
@@ -47,6 +49,8 @@ export default function SignupPage() {
           dateOfBirth,
           countryCode: countryCode.trim().toUpperCase(),
           region,
+          acceptedTerms,
+          acceptedPrivacy,
         }),
       });
 
@@ -199,12 +203,47 @@ export default function SignupPage() {
               !passwordValid ||
               !dateOfBirth ||
               countryCode.trim().length !== 2 ||
-              !region.trim()
+              !region.trim() ||
+              !acceptedTerms ||
+              !acceptedPrivacy
             }
             className="mt-6 w-full rounded-xl bg-gradient-to-r from-cyan-300 via-emerald-300 to-blue-300 py-3 font-semibold text-slate-900 shadow-lg shadow-cyan-500/20 transition-all duration-300 hover:scale-[1.01] hover:from-fuchsia-300 hover:via-cyan-300 hover:to-emerald-300"
           >
             {loading ? "Creating account..." : "Sign Up Free"}
           </button>
+
+          <div className="mt-4 space-y-2 rounded-xl border border-white/15 bg-white/5 p-3 text-xs text-white/80">
+            <label className="flex items-start gap-2">
+              <input
+                type="checkbox"
+                checked={acceptedTerms}
+                onChange={(e) => setAcceptedTerms(e.target.checked)}
+                className="mt-0.5"
+              />
+              <span>
+                I agree to the{" "}
+                <Link href="/terms" target="_blank" className="font-semibold text-emerald-300 hover:text-emerald-200">
+                  Terms of Service
+                </Link>
+                .
+              </span>
+            </label>
+            <label className="flex items-start gap-2">
+              <input
+                type="checkbox"
+                checked={acceptedPrivacy}
+                onChange={(e) => setAcceptedPrivacy(e.target.checked)}
+                className="mt-0.5"
+              />
+              <span>
+                I agree to the{" "}
+                <Link href="/privacy" target="_blank" className="font-semibold text-emerald-300 hover:text-emerald-200">
+                  Privacy Policy
+                </Link>
+                .
+              </span>
+            </label>
+          </div>
 
           {error && <p className="mt-4 text-sm text-red-300">{error}</p>}
           {statusMessage && <p className="mt-4 text-sm text-emerald-300">{statusMessage}</p>}

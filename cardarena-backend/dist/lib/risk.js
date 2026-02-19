@@ -24,6 +24,7 @@ async function recordUserSignal(db, input) {
             type: input.type,
             ip: input.ip ?? null,
             userAgent: input.userAgent ?? null,
+            device: input.device ?? null,
         },
     });
 }

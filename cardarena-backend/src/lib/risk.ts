@@ -40,6 +40,7 @@ type SignalInput = {
   type: UserSignalType;
   ip?: string | null;
   userAgent?: string | null;
+  device?: string | null;
 };
 
 type FlagInput = {
@@ -58,6 +59,7 @@ export async function recordUserSignal(db: DbClient, input: SignalInput) {
       type: input.type,
       ip: input.ip ?? null,
       userAgent: input.userAgent ?? null,
+      device: input.device ?? null,
     },
   });
 }

@@ -8,6 +8,7 @@ const auth_1 = require("../middleware/auth");
 const settings_1 = require("../lib/settings");
 const adminAudit_1 = require("../lib/adminAudit");
 const userComms_1 = require("../lib/userComms");
+const tournamentSettlement_1 = require("../game/tournamentSettlement");
 const router = (0, express_1.Router)();
 router.use(auth_1.authMiddleware, (0, auth_1.requireRole)("ADMIN"));
 router.get("/users", async (_req, res, next) => {
@@ -58,6 +59,115 @@ router.get("/users", async (_req, res, next) => {
                 totalWithdrawals: withdrawalsByUser.get(u.id) ?? 0,
             })),
         });
+    }
+    catch (err) {
+        next(err);
+    }
+});
+router.get("/reports/user-logs", async (req, res, next) => {
+    try {
+        const userId = String(req.query.userId || "").trim() || undefined;
+        const take = Math.min(Number(req.query.take) || 50, 200);
+        const users = await db_1.prisma.user.findMany({
+            where: userId ? { id: userId } : undefined,
+            orderBy: { createdAt: "desc" },
+            take,
+            select: {
+                id: true,
+                username: true,
+                email: true,
+                createdAt: true,
+                termsAcceptedAt: true,
+                privacyAcceptedAt: true,
+                signupRequestedAt: true,
+                signupReviewedAt: true,
+            },
+        });
+        const ids = users.map((u) => u.id);
+        const [signals, deposits, withdrawals] = await Promise.all([
+            db_1.prisma.userSignal.findMany({
+                where: { userId: { in: ids } },
+                orderBy: { createdAt: "desc" },
+                take: ids.length * 20 || 0,
+                select: {
+                    id: true,
+                    userId: true,
+                    type: true,
+                    ip: true,
+                    userAgent: true,
+                    device: true,
+                    createdAt: true,
+                },
+            }),
+            db_1.prisma.deposit.findMany({
+                where: { userId: { in: ids } },
+                orderBy: { createdAt: "desc" },
+                take: ids.length * 20 || 0,
+                select: {
+                    id: true,
+                    userId: true,
+                    amount: true,
+                    status: true,
+                    createdAt: true,
+                },
+            }),
+            db_1.prisma.withdrawal.findMany({
+                where: { userId: { in: ids } },
+                orderBy: { createdAt: "desc" },
+                take: ids.length * 20 || 0,
+                select: {
+                    id: true,
+                    userId: true,
+                    amount: true,
+                    status: true,
+                    createdAt: true,
+                },
+            }),
+        ]);
+        const byUserSignals = new Map();
+        const byUserDeposits = new Map();
+        const byUserWithdrawals = new Map();
+        for (const s of signals) {
+            byUserSignals.set(s.userId, [...(byUserSignals.get(s.userId) || []), s]);
+        }
+        for (const d of deposits) {
+            byUserDeposits.set(d.userId, [...(byUserDeposits.get(d.userId) || []), d]);
+        }
+        for (const w of withdrawals) {
+            byUserWithdrawals.set(w.userId, [...(byUserWithdrawals.get(w.userId) || []), w]);
+        }
+        res.json({
+            data: users.map((u) => ({
+                ...u,
+                signals: byUserSignals.get(u.id) || [],
+                deposits: byUserDeposits.get(u.id) || [],
+                withdrawals: byUserWithdrawals.get(u.id) || [],
+            })),
+        });
+    }
+    catch (err) {
+        next(err);
+    }
+});
+router.get("/reports/gameplay", async (req, res, next) => {
+    try {
+        const userId = String(req.query.userId || "").trim() || undefined;
+        const tournamentId = String(req.query.tournamentId || "").trim() || undefined;
+        const take = Math.min(Number(req.query.take) || 200, 500);
+        const logs = await db_1.prisma.gameplayLog.findMany({
+            where: {
+                userId,
+                tournamentId,
+            },
+            include: {
+                user: {
+                    select: { id: true, username: true, email: true },
+                },
+            },
+            orderBy: { createdAt: "desc" },
+            take,
+        });
+        res.json({ data: logs });
     }
     catch (err) {
         next(err);
@@ -601,6 +711,89 @@ router.post("/games/:id/cancel", async (req, res, next) => {
             });
         });
         res.json({ success: true, message: "Game cancelled and funds released." });
+    }
+    catch (err) {
+        next(err);
+    }
+});
+router.post("/games/:id/pause", async (req, res, next) => {
+    try {
+        const reason = String(req.body.reason || "Admin pause");
+        const game = await db_1.prisma.game.update({
+            where: { id: req.params.id },
+            data: { status: "PAUSED" },
+            select: { id: true, status: true, tournamentId: true },
+        });
+        await (0, adminAudit_1.logAdminAction)(db_1.prisma, {
+            adminUserId: req.userId,
+            action: "GAME_FORCE_PAUSE",
+            targetType: "GAME",
+            targetId: game.id,
+            reason,
+            details: { tournamentId: game.tournamentId },
+        });
+        res.json({ success: true, game });
+    }
+    catch (err) {
+        next(err);
+    }
+});
+router.post("/games/:id/resume", async (req, res, next) => {
+    try {
+        const reason = String(req.body.reason || "Admin resume");
+        const game = await db_1.prisma.game.update({
+            where: { id: req.params.id },
+            data: { status: "ACTIVE" },
+            select: { id: true, status: true, tournamentId: true },
+        });
+        await (0, adminAudit_1.logAdminAction)(db_1.prisma, {
+            adminUserId: req.userId,
+            action: "GAME_FORCE_RESUME",
+            targetType: "GAME",
+            targetId: game.id,
+            reason,
+            details: { tournamentId: game.tournamentId },
+        });
+        res.json({ success: true, game });
+    }
+    catch (err) {
+        next(err);
+    }
+});
+router.post("/games/:id/force-complete", async (req, res, next) => {
+    try {
+        const winningTeamInput = String(req.body.winningTeam || "").toUpperCase();
+        const reason = String(req.body.reason || "Admin force complete");
+        if (winningTeamInput !== "TEAM_A" && winningTeamInput !== "TEAM_B") {
+            throw new errorHandler_1.AppError("winningTeam must be TEAM_A or TEAM_B", 400);
+        }
+        const game = await db_1.prisma.game.findUnique({
+            where: { id: req.params.id },
+            include: { tournament: true },
+        });
+        if (!game)
+            throw new errorHandler_1.AppError("Game not found", 404);
+        const updated = await db_1.prisma.game.update({
+            where: { id: req.params.id },
+            data: {
+                status: "COMPLETED",
+                phase: "GAME_COMPLETE",
+                winnerTeam: winningTeamInput,
+            },
+            select: { id: true, tournamentId: true, winnerTeam: true, status: true, phase: true },
+        });
+        if (game.tournament && !game.tournament.settled) {
+            await (0, tournamentSettlement_1.settleTournamentFromGame)(updated.id);
+        }
+        await (0, adminAudit_1.logAdminAction)(db_1.prisma, {
+            adminUserId: req.userId,
+            action: "GAME_FORCE_COMPLETE",
+            targetType: "GAME",
+            targetId: updated.id,
+            reason,
+            details: { winningTeam: winningTeamInput, tournamentId: updated.tournamentId },
+        });
+        res.json({ success: true, game: updated });
     }
     catch (err) {
         next(err);

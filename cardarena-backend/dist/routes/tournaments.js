@@ -7,6 +7,8 @@ const errorHandler_1 = require("../middleware/errorHandler");
 const client_1 = require("@prisma/client");
 const depositHold_1 = require("../lib/depositHold");
 const risk_1 = require("../lib/risk");
+const requestMeta_1 = require("../lib/requestMeta");
+const gameplayLog_1 = require("../lib/gameplayLog");
 const router = (0, express_1.Router)();
 // Platform fee: 10% taken when table fills
 const PLATFORM_FEE_BPS = 1000; // 10% in basis points
@@ -40,6 +42,7 @@ router.post("/:id/enter", auth_1.authMiddleware, async (req, res, next) => {
     try {
         const tournamentId = req.params.id;
         const userId = req.userId;
+        const meta = (0, requestMeta_1.getRequestMeta)(req);
         const result = await db_1.prisma.$transaction(async (tx) => {
             const tournament = await tx.tournament.findUnique({
                 where: { id: tournamentId },
@@ -91,6 +94,19 @@ router.post("/:id/enter", auth_1.authMiddleware, async (req, res, next) => {
                     tournamentId,
                     userId,
                     team,
+                },
+            });
+            await (0, gameplayLog_1.recordGameplayLog)(tx, {
+                userId,
+                eventType: "TOURNAMENT_ENTRY",
+                tournamentId,
+                ip: meta.ip,
+                userAgent: meta.userAgent,
+                device: meta.device,
+                metadata: {
+                    entryFee,
+                    team,
+                    source: "http",
                 },
             });
             // Ledger lock

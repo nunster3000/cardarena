@@ -2,9 +2,9 @@ import { prisma } from "../db";
 import { GamePhase } from "@prisma/client";
 import { Prisma } from "@prisma/client";
 import { triggerBotMove } from "./bot";
-import { getIO } from "../socket/io";
 import { withGameLock } from "./gameLocks";
 import { startTurnTimer } from "./turnManager";
+import { emitGameStateForGame } from "./emitGameState";
 
 export async function submitBid(
   gameId: string,
@@ -71,7 +71,7 @@ export async function submitBid(
   });
 
   const updatedState = state;
-  getIO().to(gameId).emit("game_state", updatedState);
+  await emitGameStateForGame(gameId, updatedState);
   startTurnTimer(gameId);
 
     await triggerBotMove(gameId);

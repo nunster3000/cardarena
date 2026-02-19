@@ -4,8 +4,8 @@ import { prisma } from "../db";
 import { createDeck, shuffleDeck, dealCards } from "./deck";
 import { GamePhase, GameStatus } from "@prisma/client";
 import { Prisma } from "@prisma/client";
-import { getIO } from "../socket/io";
 import { startTurnTimer } from "./turnManager";
+import { emitGameStateForGame } from "./emitGameState";
 
 
 /**
@@ -70,7 +70,7 @@ export async function startGame(gameId: string) {
   });
 
   const updatedState = initialState;
-  getIO().to(gameId).emit("game_state", updatedState);
+  await emitGameStateForGame(gameId, updatedState);
   startTurnTimer(gameId);
 
   return initialState;

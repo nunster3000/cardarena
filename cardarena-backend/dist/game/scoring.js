@@ -6,7 +6,7 @@ exports.scoreHand = scoreHand;
 const db_1 = require("../db");
 const client_1 = require("@prisma/client");
 const tournamentSettlement_1 = require("./tournamentSettlement");
-const io_1 = require("../socket/io");
+const emitGameState_1 = require("./emitGameState");
 async function resolveHand(gameId) {
     const game = await db_1.prisma.game.findUnique({
         where: { id: gameId },
@@ -61,7 +61,7 @@ async function resolveHand(gameId) {
             },
         });
         const updatedState = state;
-        (0, io_1.getIO)().to(gameId).emit("game_state", updatedState);
+        await (0, emitGameState_1.emitGameStateForGame)(gameId, updatedState);
         // Auto-settle tournament
         await (0, tournamentSettlement_1.settleTournamentFromGame)(gameId);
         return;
@@ -85,7 +85,7 @@ async function resolveHand(gameId) {
         },
     });
     const updatedState = state;
-    (0, io_1.getIO)().to(gameId).emit("game_state", updatedState);
+    await (0, emitGameState_1.emitGameStateForGame)(gameId, updatedState);
     return state;
 }
 async function scoreHand(gameId) {

@@ -42,9 +42,10 @@ const db_1 = require("../db");
 const bot_1 = require("../game/bot");
 const engine_1 = require("../game/engine");
 const matchmaking_1 = require("../game/matchmaking");
+const stateView_1 = require("../game/stateView");
+const metrics_1 = require("../monitoring/metrics");
 const activeConnections = new Map();
 const disconnectTimers = new Map();
-const userSockets = new Map();
 const userConnectionCounts = new Map();
 const socketRateLimit = new Map();
 const MAX_EVENTS_PER_SECOND = 10;
@@ -99,7 +100,8 @@ function registerGameSockets(io) {
             return;
         }
         console.log("Player connected:", socket.id);
-        userSockets.set(userId, socket.id);
+        (0, metrics_1.incMetric)("socket.connections.total");
+        socket.join(`user:${userId}`);
         const currentCount = userConnectionCounts.get(userId) ?? 0;
         userConnectionCounts.set(userId, currentCount + 1);
         db_1.prisma.user
@@ -110,22 +112,28 @@ function registerGameSockets(io) {
             .catch(() => undefined);
         socket.on("find_table", async ({ entryFee }) => {
             if (!checkRateLimit(socket.id)) {
+                (0, metrics_1.incMetric)("socket.ratelimit.hit.total");
                 return socket.emit("error", { message: "Rate limit exceeded" });
             }
             try {
                 await (0, matchmaking_1.joinQueue)(userId, entryFee, async ({ gameId }) => {
-                    const sid = userSockets.get(userId);
-                    if (sid) {
-                        io.to(sid).emit("match_found", { gameId });
-                    }
+                    io.to(`user:${userId}`).emit("match_found", { gameId });
+                }, {
+                    ip: socket.handshake.address || null,
+                    userAgent: socket.handshake.headers["user-agent"] || null,
+                    device: socket.handshake.headers["sec-ch-ua-platform"] ||
+                        socket.handshake.headers["user-agent"] ||
+                        null,
                 });
             }
             catch (err) {
+                (0, metrics_1.incMetric)("socket.errors.find_table.total");
                 socket.emit("error", { message: err?.message ?? "Unable to join queue" });
             }
         });
         socket.on("place_bid", async ({ gameId, bid }) => {
             if (!checkRateLimit(socket.id)) {
+                (0, metrics_1.incMetric)("socket.ratelimit.hit.total");
                 return socket.emit("error", { message: "Rate limit exceeded" });
             }
             try {
@@ -136,6 +144,7 @@ function registerGameSockets(io) {
                 await placeBid(gameId, gp.seat, bid);
             }
             catch (err) {
+                (0, metrics_1.incMetric)("socket.errors.place_bid.total");
                 if (err?.message === "Game action already in progress") {
                     socket.emit("error", { message: "Action already in progress. Please retry." });
                     return;
@@ -145,6 +154,7 @@ function registerGameSockets(io) {
         });
         socket.on("play_card", async ({ gameId, card }) => {
             if (!checkRateLimit(socket.id)) {
+                (0, metrics_1.incMetric)("socket.ratelimit.hit.total");
                 return socket.emit("error", { message: "Rate limit exceeded" });
             }
             try {
@@ -155,6 +165,7 @@ function registerGameSockets(io) {
                 await playCard(gameId, gp.seat, card);
             }
             catch (err) {
+                (0, metrics_1.incMetric)("socket.errors.play_card.total");
                 if (err?.message === "Game action already in progress") {
                     socket.emit("error", { message: "Action already in progress. Please retry." });
                     return;
@@ -164,6 +175,7 @@ function registerGameSockets(io) {
         });
         socket.on("join_game", async ({ gameId }) => {
             if (!checkRateLimit(socket.id)) {
+                (0, metrics_1.incMetric)("socket.ratelimit.hit.total");
                 return socket.emit("error", { message: "Rate limit exceeded" });
             }
             socket.join(gameId);
@@ -174,6 +186,7 @@ function registerGameSockets(io) {
                 },
             });
             if (!player) {
+                (0, metrics_1.incMetric)("socket.errors.join_game.total");
                 socket.emit("error", { message: "Player not found in game" });
                 return;
             }
@@ -192,23 +205,32 @@ function registerGameSockets(io) {
                     replacedByBot: false,
                 },
             });
+            const game = await db_1.prisma.game.findUnique({
+                where: { id: gameId },
+                select: { state: true },
+            });
+            if (game?.state) {
+                socket.emit("game_state", (0, stateView_1.serializeGameStateForSeat)(game.state, player.seat));
+            }
             console.log(`User ${userId} joined game ${gameId}`);
         });
         socket.on("start_game", async ({ gameId }) => {
             if (!checkRateLimit(socket.id)) {
+                (0, metrics_1.incMetric)("socket.ratelimit.hit.total");
                 return socket.emit("error", { message: "Rate limit exceeded" });
             }
             try {
-                const state = await (0, engine_1.startGame)(gameId);
-                io.to(gameId).emit("game_started", state);
+                await (0, engine_1.startGame)(gameId);
+                io.to(gameId).emit("game_started", { gameId });
             }
             catch (err) {
+                (0, metrics_1.incMetric)("socket.errors.start_game.total");
                 console.error(err);
                 socket.emit("error", { message: "Unable to start game" });
             }
         });
         socket.on("disconnect", async () => {
-            userSockets.delete(userId);
+            (0, metrics_1.incMetric)("socket.disconnects.total");
             const count = userConnectionCounts.get(userId) ?? 0;
             const next = Math.max(0, count - 1);
             userConnectionCounts.set(userId, next);

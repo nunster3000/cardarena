@@ -6,6 +6,7 @@ import { stripe } from "../lib/stripe";
 import { authMiddleware, AuthRequest } from "../middleware/auth";
 import { evaluateMultiAccountRisk, recordUserSignal } from "../lib/risk";
 import { createUserNotification } from "../lib/userComms";
+import { getRequestMeta } from "../lib/requestMeta";
 
 const router = Router();
 const DAILY_DEPOSIT_LIMIT = 50000;
@@ -33,14 +34,16 @@ router.post("/", authMiddleware, async (req: AuthRequest, res, next) => {
       throw new AppError("Wallet is frozen. Deposits are disabled.", 403);
     }
 
+    const meta = getRequestMeta(req);
     await prisma.$transaction(async (tx) => {
       await recordUserSignal(tx, {
         userId: req.userId!,
         type: "DEPOSIT",
-        ip: req.ip,
-        userAgent: req.get("user-agent"),
+        ip: meta.ip,
+        userAgent: meta.userAgent,
+        device: meta.device,
       });
-      await evaluateMultiAccountRisk(tx, req.userId!, req.ip, req.get("user-agent"));
+      await evaluateMultiAccountRisk(tx, req.userId!, meta.ip, meta.userAgent);
     });
 
     const startOfDay = new Date();
@@ -134,6 +137,18 @@ router.post("/checkout", authMiddleware, async (req: AuthRequest, res, next) => 
     if (user.isFrozen || user.wallet?.isFrozen) {
       throw new AppError("Account or wallet is frozen. Deposits are disabled.", 403);
     }
+
+    const meta = getRequestMeta(req);
+    await prisma.$transaction(async (tx) => {
+      await recordUserSignal(tx, {
+        userId: req.userId!,
+        type: "DEPOSIT",
+        ip: meta.ip,
+        userAgent: meta.userAgent,
+        device: meta.device,
+      });
+      await evaluateMultiAccountRisk(tx, req.userId!, meta.ip, meta.userAgent);
+    });
 
     const deposit = await prisma.deposit.create({
       data: {

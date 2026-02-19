@@ -5,7 +5,10 @@ import { createServer } from "http";
 import { Server } from "socket.io";
 import { app } from "./app";
 import { registerGameSockets } from "./socket/gameSocket";
+import { setIO } from "./socket/io";
 import { startCronJobs } from "./config/cron";
+import { validateRuntimeConfig } from "./config/runtime";
+import { logger } from "./utils/logger";
 
 const allowedOrigins = (
   process.env.ALLOWED_ORIGINS ||
@@ -25,12 +28,52 @@ export const io = new Server(server, {
   },
 });
 
-registerGameSockets(io);
-
-startCronJobs();
-
 const PORT = process.env.PORT || 3000;
 
-server.listen(PORT, () => {
-  console.log(`CardArena backend running on port ${PORT}`);
+async function configureSocketAdapter() {
+  if (!process.env.REDIS_URL) return;
+
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { createAdapter } = require("@socket.io/redis-adapter");
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { createClient } = require("redis");
+
+  const pubClient = createClient({ url: process.env.REDIS_URL });
+  const subClient = pubClient.duplicate();
+
+  try {
+    await Promise.all([pubClient.connect(), subClient.connect()]);
+    io.adapter(createAdapter(pubClient, subClient));
+    logger.info("Socket.IO Redis adapter enabled");
+  } catch (err) {
+    logger.error({ err }, "Failed to initialize Socket.IO Redis adapter");
+    await Promise.allSettled([pubClient.quit(), subClient.quit()]);
+    if (process.env.REQUIRE_DURABLE_QUEUE === "true") throw err;
+  }
+}
+
+async function bootstrap() {
+  await configureSocketAdapter();
+
+  setIO(io);
+  registerGameSockets(io);
+  startCronJobs();
+
+  const runtime = validateRuntimeConfig();
+  if (process.env.REQUIRE_DURABLE_QUEUE === "true" && runtime.queueMode !== "REDIS") {
+    throw new Error("REQUIRE_DURABLE_QUEUE is true but REDIS_URL is not configured.");
+  }
+  logger.info(
+    { queueMode: runtime.queueMode, env: runtime.env, warningCount: runtime.warnings.length },
+    "Runtime initialized"
+  );
+
+  server.listen(PORT, () => {
+    console.log(`CardArena backend running on port ${PORT}`);
+  });
+}
+
+bootstrap().catch((err) => {
+  logger.error({ err }, "Fatal startup error");
+  process.exit(1);
 });

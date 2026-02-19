@@ -98,6 +98,14 @@ type PartyInvite = {
   } | null;
 };
 
+type ActiveGame = {
+  id: string;
+  status: string;
+  phase: string;
+  tournamentId: string;
+  createdAt: string;
+};
+
 type LedgerEntry = {
   id: string;
   type: string;
@@ -120,24 +128,6 @@ type UserNotification = {
     fromUserId?: string;
     fromUsername?: string;
   } | null;
-};
-
-type ComplianceFlag = {
-  id: string;
-  type: string;
-  severity: string;
-  status: string;
-  reason: string;
-  createdAt: string;
-  resolvedAt?: string | null;
-};
-
-type ComplianceAction = {
-  id: string;
-  action: string;
-  targetType: string;
-  reason?: string | null;
-  createdAt: string;
 };
 
 async function toCroppedDataUrl(file: File, size = 800) {
@@ -186,8 +176,6 @@ export default function DashboardPage() {
   const [tournaments, setTournaments] = useState<TournamentRow[]>([]);
   const [ledger, setLedger] = useState<LedgerEntry[]>([]);
   const [notifications, setNotifications] = useState<UserNotification[]>([]);
-  const [complianceFlags, setComplianceFlags] = useState<ComplianceFlag[]>([]);
-  const [complianceActions, setComplianceActions] = useState<ComplianceAction[]>([]);
   const [stripeReady, setStripeReady] = useState(false);
   const [depositAmount, setDepositAmount] = useState("");
   const [withdrawAmount, setWithdrawAmount] = useState("");
@@ -199,6 +187,7 @@ export default function DashboardPage() {
   const [party, setParty] = useState<PartyState | null>(null);
   const [partyInvites, setPartyInvites] = useState<PartyInvite[]>([]);
   const [partyInviteTarget, setPartyInviteTarget] = useState("");
+  const [activeGame, setActiveGame] = useState<ActiveGame | null>(null);
 
   const topFriends = useMemo(() => friends.filter((f) => f.isTop), [friends]);
   const walletBalance = Number(me?.wallet?.balance || 0);
@@ -233,7 +222,7 @@ export default function DashboardPage() {
   }
 
   async function loadAll() {
-    const [meData, online, friendData, tournamentData, ledgerData, partyData, notifyData, historyData] = await Promise.all([
+    const [meData, online, friendData, tournamentData, ledgerData, partyData, notifyData, activeGameData] = await Promise.all([
       api("/api/v1/users/me"),
       api("/api/v1/users/online/count"),
       api("/api/v1/users/friends"),
@@ -241,7 +230,7 @@ export default function DashboardPage() {
       api("/api/v1/users/me/ledger?take=15"),
       api("/api/v1/party/me"),
       api("/api/v1/users/me/notifications?take=20"),
-      api("/api/v1/users/me/compliance-history?take=20"),
+      api("/api/v1/games/me/active"),
     ]);
 
     setMe(meData);
@@ -253,8 +242,7 @@ export default function DashboardPage() {
     setParty(partyData.party || null);
     setPartyInvites(partyData.pendingInvites || []);
     setNotifications(notifyData.data || []);
-    setComplianceFlags(historyData.flags || []);
-    setComplianceActions(historyData.adminActions || []);
+    setActiveGame(activeGameData.data || null);
     setStripeReady(Boolean(meData.stripeOnboarded));
   }
 
@@ -510,6 +498,10 @@ export default function DashboardPage() {
     }
   }
 
+  function enterGame(gameId: string) {
+    router.push(`/play/${gameId}`);
+  }
+
   function startFreeQueue() {
     setQueueingTableId("free");
     setQueueSeconds(0);
@@ -615,6 +607,14 @@ export default function DashboardPage() {
               </p>
             </div>
             <div className="flex gap-2">
+              {activeGame?.id && (
+                <button
+                  onClick={() => enterGame(activeGame.id)}
+                  className="rounded-xl bg-[linear-gradient(110deg,#22d3ee,#60a5fa,#34d399)] bg-[length:200%_200%] px-4 py-2 text-sm font-semibold text-slate-950 transition-all duration-300 hover:bg-[position:100%_0%]"
+                >
+                  Resume Game
+                </button>
+              )}
               {isAdminAccount && (
                 <button
                   onClick={switchToAdmin}
@@ -810,8 +810,8 @@ export default function DashboardPage() {
           </div>
         </section>
 
-        <section className="mt-4 grid gap-4 lg:grid-cols-3">
-          <div className="rounded-2xl border border-white/15 bg-black/35 p-4 lg:col-span-2">
+        <section className="mt-4">
+          <div className="rounded-2xl border border-white/15 bg-black/35 p-4">
             <h2 className="text-lg font-bold">Notification Center</h2>
             <p className="text-xs text-white/70">Deposits, withdrawals, freezes, friend requests, and policy alerts.</p>
             <div className="mt-3 max-h-64 space-y-2 overflow-auto">
@@ -865,29 +865,6 @@ export default function DashboardPage() {
                 </div>
               ))}
               {!notifications.length && <p className="text-xs text-white/65">No notifications yet.</p>}
-            </div>
-          </div>
-
-          <div className="rounded-2xl border border-white/15 bg-black/35 p-4">
-            <h2 className="text-lg font-bold">Flag History</h2>
-            <div className="mt-3 max-h-64 space-y-2 overflow-auto text-xs">
-              {complianceFlags.map((f) => (
-                <div key={f.id} className="rounded bg-white/10 p-2">
-                  <p className="font-semibold">{f.type} · {f.severity}</p>
-                  <p className="text-white/80">{f.reason}</p>
-                  <p className="text-white/60">{f.status} · {new Date(f.createdAt).toLocaleDateString()}</p>
-                </div>
-              ))}
-              {complianceActions.map((a) => (
-                <div key={a.id} className="rounded bg-white/10 p-2">
-                  <p className="font-semibold">{a.action}</p>
-                  <p className="text-white/70">{a.targetType}</p>
-                  <p className="text-white/60">{new Date(a.createdAt).toLocaleDateString()}</p>
-                </div>
-              ))}
-              {!complianceFlags.length && !complianceActions.length && (
-                <p className="text-white/65">No history yet.</p>
-              )}
             </div>
           </div>
         </section>
@@ -980,6 +957,14 @@ export default function DashboardPage() {
                           className="rounded bg-red-500/30 px-3 py-1 text-xs hover:bg-red-500/40"
                         >
                           Cancel Party Queue
+                        </button>
+                      ) : null}
+                      {party.queue.status === "MATCHED" && party.queue.matchGameId ? (
+                        <button
+                          onClick={() => enterGame(party.queue.matchGameId!)}
+                          className="rounded bg-[linear-gradient(110deg,#22d3ee,#60a5fa,#34d399)] bg-[length:200%_200%] px-3 py-1 text-xs font-semibold text-slate-950 hover:bg-[position:100%_0%]"
+                        >
+                          Enter Match
                         </button>
                       ) : null}
                     </div>

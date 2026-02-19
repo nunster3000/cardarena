@@ -5,6 +5,8 @@ import { AppError } from "../middleware/errorHandler";
 import { TournamentStatus, Team, Prisma } from "@prisma/client";
 import { consumeLockedDepositAmount } from "../lib/depositHold";
 import { evaluateWinRateAndCollusionRisk } from "../lib/risk";
+import { getRequestMeta } from "../lib/requestMeta";
+import { recordGameplayLog } from "../lib/gameplayLog";
 
 const router = Router();
 
@@ -42,6 +44,7 @@ router.post("/:id/enter", authMiddleware, async (req: AuthRequest, res, next) =>
   try {
     const tournamentId = req.params.id;
     const userId = req.userId!;
+    const meta = getRequestMeta(req);
 
     const result = await prisma.$transaction(async (tx) => {
       const tournament = await tx.tournament.findUnique({
@@ -107,6 +110,20 @@ router.post("/:id/enter", authMiddleware, async (req: AuthRequest, res, next) =>
           tournamentId,
           userId,
           team,
+        },
+      });
+
+      await recordGameplayLog(tx, {
+        userId,
+        eventType: "TOURNAMENT_ENTRY",
+        tournamentId,
+        ip: meta.ip,
+        userAgent: meta.userAgent,
+        device: meta.device,
+        metadata: {
+          entryFee,
+          team,
+          source: "http",
         },
       });
 

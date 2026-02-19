@@ -14,6 +14,7 @@ import withdrawalRoutes from "./routes/withdrawals";
 import connectRoutes from "./routes/connect";
 import tournamentsRouter from "./routes/tournaments";
 import partyRouter from "./routes/party";
+import gamesRouter from "./routes/games";
 import adminFinanceRoutes from "./routes/adminFinance";
 import adminRiskRoutes from "./routes/adminRisk";
 import webhookRouter from "./routes/webhook";
@@ -22,7 +23,14 @@ import { errorHandler } from "./middleware/errorHandler";
 import { metricsHandler, metricsMiddleware } from "./monitoring/metrics";
 
 export const app = express();
-app.set("trust proxy", true);
+const trustProxySetting = process.env.TRUST_PROXY
+  ? process.env.TRUST_PROXY === "true"
+    ? 1
+    : process.env.TRUST_PROXY
+  : process.env.NODE_ENV === "production"
+    ? 1
+    : false;
+app.set("trust proxy", trustProxySetting as any);
 
 app.use(pinoHttp({ logger }));
 app.use(metricsMiddleware);
@@ -45,9 +53,16 @@ const allowedOrigins = (
   .map((o) => o.trim())
   .filter(Boolean);
 
+const safeAllowedOrigins =
+  process.env.NODE_ENV === "production" &&
+  !process.env.ALLOWED_ORIGINS &&
+  !process.env.FRONTEND_BASE_URL
+    ? []
+    : allowedOrigins;
+
 app.use((req, res, next) => {
   const origin = req.headers.origin;
-  if (origin && allowedOrigins.includes(origin)) {
+  if (origin && safeAllowedOrigins.includes(origin)) {
     res.header("Access-Control-Allow-Origin", origin);
     res.header("Vary", "Origin");
     res.header("Access-Control-Allow-Credentials", "true");
@@ -91,6 +106,7 @@ app.use("/api/connect", connectRoutes);
 app.use("/api/v1/connect", connectRoutes);
 app.use("/api/v1/tournaments", tournamentsRouter);
 app.use("/api/v1/party", partyRouter);
+app.use("/api/v1/games", gamesRouter);
 app.use("/api/admin/finance", adminFinanceRoutes);
 app.use("/api/v1/admin/finance", adminFinanceRoutes);
 app.use("/api/v1/admin/risk", adminRiskRoutes);

@@ -6,9 +6,9 @@ import { Prisma } from "@prisma/client";
 import { GameState } from "./types";
 import { scoreHand } from "./scoring";
 import { triggerBotMove } from "./bot";
-import { getIO } from "../socket/io";
 import { withGameLock } from "./gameLocks";
 import { clearTurnTimer, startTurnTimer } from "./turnManager";
+import { emitGameStateForGame } from "./emitGameState";
 
 
 
@@ -191,7 +191,7 @@ export async function playCard(
       });
 
       const updatedState = state;
-      getIO().to(gameId).emit("game_state", updatedState);
+      await emitGameStateForGame(gameId, updatedState);
 
       // Call scoring engine
       await scoreHand(gameId);
@@ -218,7 +218,7 @@ export async function playCard(
   });
 
   const updatedState = state;
-  getIO().to(gameId).emit("game_state", updatedState);
+  await emitGameStateForGame(gameId, updatedState);
   startTurnTimer(gameId);
 
     await triggerBotMove(gameId);

@@ -90,6 +90,30 @@ type AdminNotification = {
   } | null;
 };
 
+type UserReportRow = {
+  id: string;
+  username: string;
+  email: string;
+  createdAt: string;
+  termsAcceptedAt?: string | null;
+  privacyAcceptedAt?: string | null;
+  deposits: Array<{ id: string; amount: number | string; status: string; createdAt: string }>;
+  withdrawals: Array<{ id: string; amount: number | string; status: string; createdAt: string }>;
+};
+
+type GameplayReportRow = {
+  id: string;
+  userId: string;
+  tournamentId?: string | null;
+  gameId?: string | null;
+  eventType: string;
+  ip?: string | null;
+  userAgent?: string | null;
+  device?: string | null;
+  createdAt: string;
+  user?: { id: string; username?: string | null; email?: string | null } | null;
+};
+
 function getErrorMessage(err: unknown, fallback: string) {
   if (err instanceof Error && err.message) return err.message;
   return fallback;
@@ -120,7 +144,7 @@ export default function AdminDashboardPage() {
   const router = useRouter();
   const [token, setToken] = useState<string>("");
   const [message, setMessage] = useState("");
-  const [activeTab, setActiveTab] = useState<"overview" | "users" | "wallets" | "games" | "settings" | "risk" | "notifications">("overview");
+  const [activeTab, setActiveTab] = useState<"overview" | "users" | "wallets" | "games" | "settings" | "risk" | "notifications" | "reports">("overview");
 
   const [overview, setOverview] = useState<Overview | null>(null);
   const [users, setUsers] = useState<AdminUser[]>([]);
@@ -132,6 +156,10 @@ export default function AdminDashboardPage() {
   const [registrationsOpen, setRegistrationsOpen] = useState(true);
   const [flags, setFlags] = useState<FlagRow[]>([]);
   const [notifications, setNotifications] = useState<AdminNotification[]>([]);
+  const [userReports, setUserReports] = useState<UserReportRow[]>([]);
+  const [gameplayReports, setGameplayReports] = useState<GameplayReportRow[]>([]);
+  const [reportUserQuery, setReportUserQuery] = useState("");
+  const [reportTournamentQuery, setReportTournamentQuery] = useState("");
   const [adjustAmount, setAdjustAmount] = useState("");
   const [adjustReason, setAdjustReason] = useState("");
 
@@ -187,6 +215,12 @@ export default function AdminDashboardPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token, gameStatus]);
 
+  useEffect(() => {
+    if (activeTab !== "reports" || !token) return;
+    loadReports();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab, token]);
+
   async function loadLedger(userId: string) {
     try {
       const data = await apiRequest(`/api/v1/admin/wallets/${userId}/ledger`, token);
@@ -206,6 +240,27 @@ export default function AdminDashboardPage() {
       setMessage("Action completed.");
     } catch (err: unknown) {
       setMessage(getErrorMessage(err, "Action failed"));
+    }
+  }
+
+  async function loadReports() {
+    try {
+      const userPath = reportUserQuery.trim()
+        ? `/api/v1/admin/reports/user-logs?userId=${encodeURIComponent(reportUserQuery.trim())}&take=50`
+        : "/api/v1/admin/reports/user-logs?take=25";
+      const gameplayPath = `/api/v1/admin/reports/gameplay?take=200${
+        reportUserQuery.trim() ? `&userId=${encodeURIComponent(reportUserQuery.trim())}` : ""
+      }${
+        reportTournamentQuery.trim() ? `&tournamentId=${encodeURIComponent(reportTournamentQuery.trim())}` : ""
+      }`;
+      const [u, g] = await Promise.all([
+        apiRequest(userPath, token),
+        apiRequest(gameplayPath, token),
+      ]);
+      setUserReports(u.data || []);
+      setGameplayReports(g.data || []);
+    } catch (err: unknown) {
+      setMessage(getErrorMessage(err, "Failed to load reports"));
     }
   }
 
@@ -288,8 +343,8 @@ export default function AdminDashboardPage() {
           {message && <p className="mt-3 text-sm text-emerald-300">{message}</p>}
         </header>
 
-        <nav className="mt-4 grid grid-cols-2 gap-2 md:grid-cols-7">
-          {(["overview", "users", "wallets", "games", "settings", "risk", "notifications"] as const).map((tab) => (
+        <nav className="mt-4 grid grid-cols-2 gap-2 md:grid-cols-8">
+          {(["overview", "users", "wallets", "games", "settings", "risk", "notifications", "reports"] as const).map((tab) => (
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
@@ -474,7 +529,16 @@ export default function AdminDashboardPage() {
                     ))}
                   </div>
                   {g.status !== "COMPLETED" && g.status !== "CANCELLED" && (
-                    <button onClick={() => callAction(`/api/v1/admin/games/${g.id}/cancel`, { reason: "Emergency admin cancel" })} className="mt-3 rounded-lg bg-red-500/30 px-3 py-1 text-sm hover:bg-red-500/40">Emergency Cancel</button>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <button onClick={() => callAction(`/api/v1/admin/games/${g.id}/cancel`, { reason: "Emergency admin cancel" })} className="rounded-lg bg-red-500/30 px-3 py-1 text-sm hover:bg-red-500/40">Emergency Cancel</button>
+                      {g.status !== "PAUSED" ? (
+                        <button onClick={() => callAction(`/api/v1/admin/games/${g.id}/pause`, { reason: "Manual pause" })} className="rounded-lg bg-yellow-500/25 px-3 py-1 text-sm hover:bg-yellow-500/35">Pause</button>
+                      ) : (
+                        <button onClick={() => callAction(`/api/v1/admin/games/${g.id}/resume`, { reason: "Manual resume" })} className="rounded-lg bg-emerald-500/25 px-3 py-1 text-sm hover:bg-emerald-500/35">Resume</button>
+                      )}
+                      <button onClick={() => callAction(`/api/v1/admin/games/${g.id}/force-complete`, { winningTeam: "TEAM_A", reason: "Manual force complete" })} className="rounded-lg bg-blue-500/25 px-3 py-1 text-sm hover:bg-blue-500/35">Force Complete A</button>
+                      <button onClick={() => callAction(`/api/v1/admin/games/${g.id}/force-complete`, { winningTeam: "TEAM_B", reason: "Manual force complete" })} className="rounded-lg bg-indigo-500/25 px-3 py-1 text-sm hover:bg-indigo-500/35">Force Complete B</button>
+                    </div>
                   )}
                 </div>
               ))}
@@ -574,6 +638,76 @@ export default function AdminDashboardPage() {
                 </div>
               ))}
               {!notifications.length && <p className="text-sm text-white/70">No open notifications.</p>}
+            </div>
+          </section>
+        )}
+
+        {activeTab === "reports" && (
+          <section className="mt-4 space-y-4">
+            <div className="rounded-2xl border border-white/15 bg-black/35 p-4">
+              <h2 className="text-lg font-bold">Reports</h2>
+              <p className="mt-1 text-sm text-white/70">
+                Pull user lifecycle logs and gameplay logs for chargeback response.
+              </p>
+              <div className="mt-3 grid gap-2 md:grid-cols-3">
+                <input
+                  placeholder="Filter by User ID"
+                  value={reportUserQuery}
+                  onChange={(e) => setReportUserQuery(e.target.value)}
+                  className="rounded-lg bg-white/10 px-3 py-2 text-sm ring-1 ring-white/20 outline-none"
+                />
+                <input
+                  placeholder="Filter by Tournament ID"
+                  value={reportTournamentQuery}
+                  onChange={(e) => setReportTournamentQuery(e.target.value)}
+                  className="rounded-lg bg-white/10 px-3 py-2 text-sm ring-1 ring-white/20 outline-none"
+                />
+                <button onClick={loadReports} className="rounded-lg bg-white/15 px-3 py-2 text-sm hover:bg-white/25">
+                  Refresh Reports
+                </button>
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-white/15 bg-black/35 p-4">
+              <h3 className="text-base font-bold">User Log Report</h3>
+              <div className="mt-3 max-h-80 space-y-2 overflow-auto text-xs">
+                {userReports.map((u) => (
+                  <div key={u.id} className="rounded-lg border border-white/10 bg-white/5 p-3">
+                    <p className="font-semibold">{u.username} <span className="text-white/60">({u.email})</span></p>
+                    <p className="text-white/70">Account Created: {new Date(u.createdAt).toLocaleString()}</p>
+                    <p className="text-white/70">Terms Accepted: {u.termsAcceptedAt ? new Date(u.termsAcceptedAt).toLocaleString() : "-"}</p>
+                    <p className="text-white/70">Privacy Accepted: {u.privacyAcceptedAt ? new Date(u.privacyAcceptedAt).toLocaleString() : "-"}</p>
+                    <p className="mt-2 text-white/80">Deposits: {u.deposits.length} · Withdrawals: {u.withdrawals.length}</p>
+                    <p className="text-white/60">
+                      Latest Deposit: {u.deposits[0] ? `${new Date(u.deposits[0].createdAt).toLocaleString()} ($${(Number(u.deposits[0].amount) / 100).toFixed(2)})` : "-"}
+                    </p>
+                    <p className="text-white/60">
+                      Latest Withdrawal: {u.withdrawals[0] ? `${new Date(u.withdrawals[0].createdAt).toLocaleString()} ($${(Number(u.withdrawals[0].amount) / 100).toFixed(2)})` : "-"}
+                    </p>
+                  </div>
+                ))}
+                {!userReports.length && <p className="text-sm text-white/70">No user log rows found.</p>}
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-white/15 bg-black/35 p-4">
+              <h3 className="text-base font-bold">Gameplay Report</h3>
+              <div className="mt-3 max-h-96 space-y-2 overflow-auto text-xs">
+                {gameplayReports.map((g) => (
+                  <div key={g.id} className="rounded-lg border border-white/10 bg-white/5 p-3">
+                    <p className="font-semibold">{g.eventType}</p>
+                    <p className="text-white/70">
+                      User: {g.user?.username || g.user?.email || g.userId}
+                    </p>
+                    <p className="text-white/70">Tournament: {g.tournamentId || "-"}</p>
+                    <p className="text-white/70">Game: {g.gameId || "-"}</p>
+                    <p className="text-white/70">IP: {g.ip || "-"}</p>
+                    <p className="text-white/70">Device: {g.device || "-"}</p>
+                    <p className="text-white/60">{new Date(g.createdAt).toLocaleString()}</p>
+                  </div>
+                ))}
+                {!gameplayReports.length && <p className="text-sm text-white/70">No gameplay logs found.</p>}
+              </div>
             </div>
           </section>
         )}

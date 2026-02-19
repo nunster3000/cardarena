@@ -11,6 +11,8 @@ describe("Auth & Wallet Flow", () => {
     dateOfBirth: "2000-01-01",
     countryCode: "US",
     region: "California",
+    acceptedTerms: true,
+    acceptedPrivacy: true,
   };
 
   it("should register a user and auto-create wallet", async () => {

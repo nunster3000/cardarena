@@ -13,6 +13,7 @@ import { AppError } from "../middleware/errorHandler";
 import { authMiddleware, AuthRequest } from "../middleware/auth";
 import { incMetric } from "../monitoring/metrics";
 import { createUserNotification } from "../lib/userComms";
+import { getRequestMeta } from "../lib/requestMeta";
 
 const router = Router();
 
@@ -55,14 +56,16 @@ router.post("/", authMiddleware, async (req: AuthRequest, res, next) => {
       throw new AppError("Complete Stripe payout verification before withdrawing funds.", 400);
     }
 
+    const meta = getRequestMeta(req);
     await prisma.$transaction(async (tx) => {
       await recordUserSignal(tx, {
         userId: req.userId!,
         type: "WITHDRAW",
-        ip: req.ip,
-        userAgent: req.get("user-agent"),
+        ip: meta.ip,
+        userAgent: meta.userAgent,
+        device: meta.device,
       });
-      await evaluateMultiAccountRisk(tx, req.userId!, req.ip, req.get("user-agent"));
+      await evaluateMultiAccountRisk(tx, req.userId!, meta.ip, meta.userAgent);
     });
 
     const startOfDay = new Date();

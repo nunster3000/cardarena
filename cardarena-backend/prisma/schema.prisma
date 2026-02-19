@@ -149,6 +149,8 @@ model User {
   signupRequestedAt DateTime?
   signupReviewedAt DateTime?
   signupReviewedBy String?
+  termsAcceptedAt DateTime?
+  privacyAcceptedAt DateTime?
 
   stripeAccountId String? @unique
   stripeOnboarded Boolean @default(false)
@@ -178,6 +180,7 @@ model User {
   adminNotifications AdminNotification[]
   adminEmailVerifications AdminEmailVerificationToken[]
   passwordResetTokens PasswordResetToken[]
+  gameplayLogs GameplayLog[]
 }
 
 model Wallet {
@@ -408,10 +411,30 @@ model UserSignal {
   type      UserSignalType
   ip        String?
   userAgent String?
+  device    String?
   createdAt DateTime       @default(now())
 
   @@index([userId, createdAt])
   @@index([ip, userAgent, createdAt])
+}
+
+model GameplayLog {
+  id           String   @id @default(uuid())
+  userId       String
+  user         User     @relation(fields: [userId], references: [id])
+  tournamentId String?
+  gameId       String?
+  eventType    String
+  ip           String?
+  userAgent    String?
+  device       String?
+  metadata     Json?
+  createdAt    DateTime @default(now())
+
+  @@index([userId, createdAt])
+  @@index([tournamentId, createdAt])
+  @@index([gameId, createdAt])
+  @@index([eventType, createdAt])
 }
 
 //////////////////////////////////////////////////////

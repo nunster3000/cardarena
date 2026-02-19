@@ -5,6 +5,8 @@ import { prisma } from "../db";
 import { triggerBotMove } from "../game/bot";
 import { startGame } from "../game/engine";
 import { joinQueue } from "../game/matchmaking";
+import { serializeGameStateForSeat } from "../game/stateView";
+import { incMetric } from "../monitoring/metrics";
 
 type AuthPayload = {
   userId: string;
@@ -22,7 +24,6 @@ type AuthedSocket = Socket & {
 
 const activeConnections = new Map<string, { gameId: string; seat: number }>();
 const disconnectTimers = new Map<string, NodeJS.Timeout>();
-const userSockets = new Map<string, string>();
 const userConnectionCounts = new Map<string, number>();
 const socketRateLimit = new Map<string, { count: number; timestamp: number }>();
 
@@ -90,7 +91,8 @@ export function registerGameSockets(io: Server) {
     }
 
     console.log("Player connected:", socket.id);
-    userSockets.set(userId, socket.id);
+    incMetric("socket.connections.total");
+    socket.join(`user:${userId}`);
     const currentCount = userConnectionCounts.get(userId) ?? 0;
     userConnectionCounts.set(userId, currentCount + 1);
     prisma.user
@@ -102,23 +104,30 @@ export function registerGameSockets(io: Server) {
 
     socket.on("find_table", async ({ entryFee }) => {
       if (!checkRateLimit(socket.id)) {
+        incMetric("socket.ratelimit.hit.total");
         return socket.emit("error", { message: "Rate limit exceeded" });
       }
 
       try {
         await joinQueue(userId, entryFee, async ({ gameId }) => {
-          const sid = userSockets.get(userId);
-          if (sid) {
-            io.to(sid).emit("match_found", { gameId });
-          }
+          io.to(`user:${userId}`).emit("match_found", { gameId });
+        }, {
+          ip: socket.handshake.address || null,
+          userAgent: (socket.handshake.headers["user-agent"] as string | undefined) || null,
+          device:
+            (socket.handshake.headers["sec-ch-ua-platform"] as string | undefined) ||
+            (socket.handshake.headers["user-agent"] as string | undefined) ||
+            null,
         });
       } catch (err: any) {
+        incMetric("socket.errors.find_table.total");
         socket.emit("error", { message: err?.message ?? "Unable to join queue" });
       }
     });
 
     socket.on("place_bid", async ({ gameId, bid }) => {
       if (!checkRateLimit(socket.id)) {
+        incMetric("socket.ratelimit.hit.total");
         return socket.emit("error", { message: "Rate limit exceeded" });
       }
 
@@ -129,6 +138,7 @@ export function registerGameSockets(io: Server) {
         const { placeBid } = await import("../game/bid");
         await placeBid(gameId, gp.seat, bid);
       } catch (err: any) {
+        incMetric("socket.errors.place_bid.total");
         if (err?.message === "Game action already in progress") {
           socket.emit("error", { message: "Action already in progress. Please retry." });
           return;
@@ -140,6 +150,7 @@ export function registerGameSockets(io: Server) {
 
     socket.on("play_card", async ({ gameId, card }) => {
       if (!checkRateLimit(socket.id)) {
+        incMetric("socket.ratelimit.hit.total");
         return socket.emit("error", { message: "Rate limit exceeded" });
       }
 
@@ -150,6 +161,7 @@ export function registerGameSockets(io: Server) {
         const { playCard } = await import("../game/play");
         await playCard(gameId, gp.seat, card);
       } catch (err: any) {
+        incMetric("socket.errors.play_card.total");
         if (err?.message === "Game action already in progress") {
           socket.emit("error", { message: "Action already in progress. Please retry." });
           return;
@@ -161,6 +173,7 @@ export function registerGameSockets(io: Server) {
 
     socket.on("join_game", async ({ gameId }) => {
       if (!checkRateLimit(socket.id)) {
+        incMetric("socket.ratelimit.hit.total");
         return socket.emit("error", { message: "Rate limit exceeded" });
       }
 
@@ -174,6 +187,7 @@ export function registerGameSockets(io: Server) {
       });
 
       if (!player) {
+        incMetric("socket.errors.join_game.total");
         socket.emit("error", { message: "Player not found in game" });
         return;
       }
@@ -196,25 +210,35 @@ export function registerGameSockets(io: Server) {
         },
       });
 
+      const game = await prisma.game.findUnique({
+        where: { id: gameId },
+        select: { state: true },
+      });
+      if (game?.state) {
+        socket.emit("game_state", serializeGameStateForSeat(game.state, player.seat));
+      }
+
       console.log(`User ${userId} joined game ${gameId}`);
     });
 
     socket.on("start_game", async ({ gameId }) => {
       if (!checkRateLimit(socket.id)) {
+        incMetric("socket.ratelimit.hit.total");
         return socket.emit("error", { message: "Rate limit exceeded" });
       }
 
       try {
-        const state = await startGame(gameId);
-        io.to(gameId).emit("game_started", state);
+        await startGame(gameId);
+        io.to(gameId).emit("game_started", { gameId });
       } catch (err) {
+        incMetric("socket.errors.start_game.total");
         console.error(err);
         socket.emit("error", { message: "Unable to start game" });
       }
     });
 
     socket.on("disconnect", async () => {
-      userSockets.delete(userId);
+      incMetric("socket.disconnects.total");
       const count = userConnectionCounts.get(userId) ?? 0;
       const next = Math.max(0, count - 1);
       userConnectionCounts.set(userId, next);

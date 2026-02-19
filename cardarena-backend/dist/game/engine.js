@@ -5,8 +5,8 @@ exports.startGame = startGame;
 const db_1 = require("../db");
 const deck_1 = require("./deck");
 const client_1 = require("@prisma/client");
-const io_1 = require("../socket/io");
 const turnManager_1 = require("./turnManager");
+const emitGameState_1 = require("./emitGameState");
 /**
  * Starts a game when 4 players are ready
  */
@@ -58,7 +58,7 @@ async function startGame(gameId) {
         },
     });
     const updatedState = initialState;
-    (0, io_1.getIO)().to(gameId).emit("game_state", updatedState);
+    await (0, emitGameState_1.emitGameStateForGame)(gameId, updatedState);
     (0, turnManager_1.startTurnTimer)(gameId);
     return initialState;
 }

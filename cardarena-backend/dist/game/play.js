@@ -6,9 +6,9 @@ const db_1 = require("../db");
 const client_1 = require("@prisma/client");
 const scoring_1 = require("./scoring");
 const bot_1 = require("./bot");
-const io_1 = require("../socket/io");
 const gameLocks_1 = require("./gameLocks");
 const turnManager_1 = require("./turnManager");
+const emitGameState_1 = require("./emitGameState");
 async function playCard(gameId, playerSeat, card) {
     return (0, gameLocks_1.withGameLock)(gameId, async () => {
         (0, turnManager_1.clearTurnTimer)(gameId);
@@ -139,7 +139,7 @@ async function playCard(gameId, playerSeat, card) {
                     },
                 });
                 const updatedState = state;
-                (0, io_1.getIO)().to(gameId).emit("game_state", updatedState);
+                await (0, emitGameState_1.emitGameStateForGame)(gameId, updatedState);
                 // Call scoring engine
                 await (0, scoring_1.scoreHand)(gameId);
                 // Stop further execution
@@ -161,7 +161,7 @@ async function playCard(gameId, playerSeat, card) {
             },
         });
         const updatedState = state;
-        (0, io_1.getIO)().to(gameId).emit("game_state", updatedState);
+        await (0, emitGameState_1.emitGameStateForGame)(gameId, updatedState);
         (0, turnManager_1.startTurnTimer)(gameId);
         await (0, bot_1.triggerBotMove)(gameId);
         return state;

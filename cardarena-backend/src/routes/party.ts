@@ -2,7 +2,7 @@ import crypto from "crypto";
 import { FriendStatus } from "@prisma/client";
 import { Router } from "express";
 import { prisma } from "../db";
-import { joinQueue } from "../game/matchmaking";
+import { joinQueue, leaveQueue } from "../game/matchmaking";
 import { authMiddleware, AuthRequest } from "../middleware/auth";
 import { AppError } from "../middleware/errorHandler";
 import { createUserNotification } from "../lib/userComms";
@@ -40,6 +40,15 @@ const parties = new Map<string, PartyState>();
 const partyByUser = new Map<string, string>();
 const invites = new Map<string, InviteState>();
 const invitesByUser = new Map<string, Set<string>>();
+
+export function getPartyHealth() {
+  return {
+    mode: "MEMORY_SINGLE_INSTANCE",
+    partyCount: parties.size,
+    inviteCount: invites.size,
+    usersInParty: partyByUser.size,
+  };
+}
 
 function getPartyForUser(userId: string) {
   const partyId = partyByUser.get(userId);
@@ -102,6 +111,11 @@ async function assertFriendship(userId: string, friendId: string) {
 }
 
 function resetQueueState(party: PartyState) {
+  if (party.queue.status === "SEARCHING") {
+    for (const member of party.members) {
+      leaveQueue(member.userId, party.queue.entryFee ?? undefined);
+    }
+  }
   party.queue = {
     status: "IDLE",
     entryFee: null,
@@ -356,20 +370,30 @@ router.post("/queue", async (req: AuthRequest, res, next) => {
       matchGameId: null,
     };
 
-    for (const member of party.members) {
-      await joinQueue(member.userId, entryFee, async ({ gameId, playerIds }) => {
-        const currentParty = parties.get(party.id);
-        if (!currentParty) return;
-        const memberIds = new Set(currentParty.members.map((m) => m.userId));
-        const includesPartyMember = playerIds.some((pid) => memberIds.has(pid));
-        if (!includesPartyMember) return;
-        currentParty.queue = {
-          status: "MATCHED",
-          entryFee,
-          startedAt: currentParty.queue.startedAt || new Date(),
-          matchGameId: gameId,
-        };
-      });
+    const joined: string[] = [];
+    try {
+      for (const member of party.members) {
+        await joinQueue(member.userId, entryFee, async ({ gameId, playerIds }) => {
+          const currentParty = parties.get(party.id);
+          if (!currentParty) return;
+          const memberIds = new Set(currentParty.members.map((m) => m.userId));
+          const includesPartyMember = playerIds.some((pid) => memberIds.has(pid));
+          if (!includesPartyMember) return;
+          currentParty.queue = {
+            status: "MATCHED",
+            entryFee,
+            startedAt: currentParty.queue.startedAt || new Date(),
+            matchGameId: gameId,
+          };
+        });
+        joined.push(member.userId);
+      }
+    } catch (error) {
+      for (const uid of joined) {
+        leaveQueue(uid, entryFee);
+      }
+      resetQueueState(party);
+      throw error;
     }
 
     res.json({ success: true, party: await buildPartyResponse(party, userId) });
