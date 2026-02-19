@@ -619,11 +619,21 @@ export default function DashboardPage() {
       setQueueingTableId(null);
       setQueueSeconds(0);
       setMessage(`Party match found. Game ID: ${party.queue.matchGameId}`);
+      enterGame(party.queue.matchGameId);
     }
     if (party.queue.status === "SEARCHING") {
       setQueueingTableId("free");
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [party]);
+
+  useEffect(() => {
+    if (queueingTableId !== "free") return;
+    if (!activeGame?.id) return;
+    setMessage("Game is ready. Loading table...");
+    enterGame(activeGame.id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeGame?.id, queueingTableId]);
 
   return (
     <main className={`${space.className} relative min-h-screen overflow-hidden text-white`}>
