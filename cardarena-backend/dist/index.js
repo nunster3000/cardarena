@@ -37,6 +37,12 @@ async function configureSocketAdapter() {
     const { createClient } = require("redis");
     const pubClient = createClient({ url: process.env.REDIS_URL });
     const subClient = pubClient.duplicate();
+    pubClient.on("error", (err) => {
+        logger_1.logger.error({ err }, "Redis pub client error");
+    });
+    subClient.on("error", (err) => {
+        logger_1.logger.error({ err }, "Redis sub client error");
+    });
     try {
         await Promise.all([pubClient.connect(), subClient.connect()]);
         exports.io.adapter(createAdapter(pubClient, subClient));
