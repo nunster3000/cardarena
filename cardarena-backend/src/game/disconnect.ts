@@ -1,7 +1,7 @@
 // src/game/disconnect.ts
 
 import { prisma } from "../db";
-import { triggerBotMove } from "./bot";
+import { triggerBotMoveSafely } from "./bot";
 
 const DISCONNECT_TIMEOUT = 30 * 1000; // 30 seconds
 const MAX_DISCONNECTS = 5;
@@ -78,5 +78,5 @@ async function replaceWithBot(gameId: string, gamePlayerId: string, userId: stri
     });
   });
 
-  await triggerBotMove(gameId);
+  await triggerBotMoveSafely(gameId, "disconnect.replaceWithBot");
 }

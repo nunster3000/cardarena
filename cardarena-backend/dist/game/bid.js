@@ -57,7 +57,7 @@ async function submitBid(gameId, playerSeat, bidValue) {
         const updatedState = state;
         await (0, emitGameState_1.emitGameStateForGame)(gameId, updatedState);
         (0, turnManager_1.startTurnTimer)(gameId);
-        await (0, bot_1.triggerBotMove)(gameId);
+        await (0, bot_1.triggerBotMoveSafely)(gameId, "bid.submit");
         return state;
     });
 }

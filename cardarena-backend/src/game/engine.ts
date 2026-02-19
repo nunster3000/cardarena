@@ -31,8 +31,9 @@ export async function startGame(gameId: string) {
   // Shuffle deck
   const deck = shuffleDeck(createDeck());
 
-  // Deal cards
-  const hands = dealCards(deck);
+  // Deal cards starting from dealer's left so dealer gets the last card.
+  const firstSeatToDeal = dealerSeat === 4 ? 1 : dealerSeat + 1;
+  const hands = dealCards(deck, firstSeatToDeal);
   const handsForState = Object.fromEntries(
     Object.entries(hands).map(([seat, cards]) => [
       seat,

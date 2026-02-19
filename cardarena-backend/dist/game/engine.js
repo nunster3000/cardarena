@@ -25,8 +25,9 @@ async function startGame(gameId) {
     const dealerSeat = Math.floor(Math.random() * 4) + 1;
     // Shuffle deck
     const deck = (0, deck_1.shuffleDeck)((0, deck_1.createDeck)());
-    // Deal cards
-    const hands = (0, deck_1.dealCards)(deck);
+    // Deal cards starting from dealer's left so dealer gets the last card.
+    const firstSeatToDeal = dealerSeat === 4 ? 1 : dealerSeat + 1;
+    const hands = (0, deck_1.dealCards)(deck, firstSeatToDeal);
     const handsForState = Object.fromEntries(Object.entries(hands).map(([seat, cards]) => [
         seat,
         cards.map((card) => ({ suit: card.suit, rank: card.rank })),

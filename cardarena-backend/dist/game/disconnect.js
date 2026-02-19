@@ -66,5 +66,5 @@ async function replaceWithBot(gameId, gamePlayerId, userId) {
             data: { status: "ACTIVE" },
         });
     });
-    await (0, bot_1.triggerBotMove)(gameId);
+    await (0, bot_1.triggerBotMoveSafely)(gameId, "disconnect.replaceWithBot");
 }

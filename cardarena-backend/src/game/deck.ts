@@ -32,8 +32,9 @@ export function shuffleDeck(deck: Card[]): Card[] {
   return shuffled;
 }
 
-// Deal 13 cards to 4 players
-export function dealCards(deck: Card[]) {
+// Deal 13 cards to 4 players, starting from a specific seat.
+// For Spades, first card should go to dealer's left, and dealer gets last card.
+export function dealCards(deck: Card[], firstSeat: number = 1) {
   const hands: Record<number, Card[]> = {
     1: [],
     2: [],
@@ -42,7 +43,7 @@ export function dealCards(deck: Card[]) {
   };
 
   for (let i = 0; i < 52; i++) {
-    const seat = (i % 4) + 1;
+    const seat = ((firstSeat - 1 + i) % 4) + 1;
     hands[seat].push(deck[i]);
   }
 

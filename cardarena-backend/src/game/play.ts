@@ -5,7 +5,7 @@ import { GamePhase } from "@prisma/client";
 import { Prisma } from "@prisma/client";
 import { GameState } from "./types";
 import { scoreHand } from "./scoring";
-import { triggerBotMove } from "./bot";
+import { triggerBotMoveSafely } from "./bot";
 import { withGameLock } from "./gameLocks";
 import { clearTurnTimer, startTurnTimer } from "./turnManager";
 import { emitGameStateForGame } from "./emitGameState";
@@ -221,7 +221,7 @@ export async function playCard(
   await emitGameStateForGame(gameId, updatedState);
   startTurnTimer(gameId);
 
-    await triggerBotMove(gameId);
+    await triggerBotMoveSafely(gameId, "play.submit");
 
     return state;
   });

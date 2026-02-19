@@ -2,6 +2,7 @@ import { prisma } from "../db";
 import { GamePhase } from "@prisma/client";
 import { playCard } from "./play";
 import { submitBid } from "./bid";
+import { logger } from "../utils/logger";
 
 export async function triggerBotMove(gameId: string) {
   const game = await prisma.game.findUnique({
@@ -34,5 +35,17 @@ export async function triggerBotMove(gameId: string) {
     const card = hand[0]; // simple bot logic
 
     await playCard(gameId, currentSeat, card);
+  }
+}
+
+export async function triggerBotMoveSafely(gameId: string, source: string) {
+  try {
+    await triggerBotMove(gameId);
+  } catch (err: any) {
+    if (err?.message === "Game action already in progress") {
+      logger.warn({ gameId, source }, "Skipped bot move due to in-progress action lock");
+      return;
+    }
+    logger.error({ err, gameId, source }, "Bot move failed");
   }
 }

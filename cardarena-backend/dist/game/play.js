@@ -163,7 +163,7 @@ async function playCard(gameId, playerSeat, card) {
         const updatedState = state;
         await (0, emitGameState_1.emitGameStateForGame)(gameId, updatedState);
         (0, turnManager_1.startTurnTimer)(gameId);
-        await (0, bot_1.triggerBotMove)(gameId);
+        await (0, bot_1.triggerBotMoveSafely)(gameId, "play.submit");
         return state;
     });
 }

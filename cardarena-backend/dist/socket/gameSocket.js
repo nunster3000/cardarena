@@ -268,16 +268,23 @@ function registerGameSockets(io) {
                 },
             });
             const timer = setTimeout(async () => {
-                console.log(`Replacing seat ${seat} with bot`);
-                await db_1.prisma.gamePlayer.update({
-                    where: { id: player.id },
-                    data: {
-                        isBot: true,
-                        replacedByBot: true,
-                    },
-                });
-                await (0, bot_1.triggerBotMove)(gameId);
-                disconnectTimers.delete(player.id);
+                try {
+                    console.log(`Replacing seat ${seat} with bot`);
+                    await db_1.prisma.gamePlayer.update({
+                        where: { id: player.id },
+                        data: {
+                            isBot: true,
+                            replacedByBot: true,
+                        },
+                    });
+                    await (0, bot_1.triggerBotMoveSafely)(gameId, "socket.disconnectTimeout");
+                }
+                catch (err) {
+                    console.error(err);
+                }
+                finally {
+                    disconnectTimers.delete(player.id);
+                }
             }, 30 * 1000);
             disconnectTimers.set(player.id, timer);
             activeConnections.delete(socket.id);

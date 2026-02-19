@@ -23,8 +23,9 @@ function shuffleDeck(deck) {
     }
     return shuffled;
 }
-// Deal 13 cards to 4 players
-function dealCards(deck) {
+// Deal 13 cards to 4 players, starting from a specific seat.
+// For Spades, first card should go to dealer's left, and dealer gets last card.
+function dealCards(deck, firstSeat = 1) {
     const hands = {
         1: [],
         2: [],
@@ -32,7 +33,7 @@ function dealCards(deck) {
         4: [],
     };
     for (let i = 0; i < 52; i++) {
-        const seat = (i % 4) + 1;
+        const seat = ((firstSeat - 1 + i) % 4) + 1;
         hands[seat].push(deck[i]);
     }
     return hands;

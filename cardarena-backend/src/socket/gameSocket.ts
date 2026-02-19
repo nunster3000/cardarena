@@ -2,7 +2,7 @@ import { Role } from "@prisma/client";
 import jwt from "jsonwebtoken";
 import { Server, Socket } from "socket.io";
 import { prisma } from "../db";
-import { triggerBotMove } from "../game/bot";
+import { triggerBotMoveSafely } from "../game/bot";
 import { startGame } from "../game/engine";
 import { joinQueue, leaveQueue } from "../game/matchmaking";
 import { serializeGameStateForSeat } from "../game/stateView";
@@ -281,18 +281,23 @@ export function registerGameSockets(io: Server) {
       });
 
       const timer = setTimeout(async () => {
-        console.log(`Replacing seat ${seat} with bot`);
+        try {
+          console.log(`Replacing seat ${seat} with bot`);
 
-        await prisma.gamePlayer.update({
-          where: { id: player.id },
-          data: {
-            isBot: true,
-            replacedByBot: true,
-          },
-        });
+          await prisma.gamePlayer.update({
+            where: { id: player.id },
+            data: {
+              isBot: true,
+              replacedByBot: true,
+            },
+          });
 
-        await triggerBotMove(gameId);
-        disconnectTimers.delete(player.id);
+          await triggerBotMoveSafely(gameId, "socket.disconnectTimeout");
+        } catch (err) {
+          console.error(err);
+        } finally {
+          disconnectTimers.delete(player.id);
+        }
       }, 30 * 1000);
 
       disconnectTimers.set(player.id, timer);

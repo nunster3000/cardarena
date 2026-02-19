@@ -1,10 +1,12 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.triggerBotMove = triggerBotMove;
+exports.triggerBotMoveSafely = triggerBotMoveSafely;
 const db_1 = require("../db");
 const client_1 = require("@prisma/client");
 const play_1 = require("./play");
 const bid_1 = require("./bid");
+const logger_1 = require("../utils/logger");
 async function triggerBotMove(gameId) {
     const game = await db_1.prisma.game.findUnique({
         where: { id: gameId },
@@ -28,5 +30,17 @@ async function triggerBotMove(gameId) {
             return;
         const card = hand[0]; // simple bot logic
         await (0, play_1.playCard)(gameId, currentSeat, card);
+    }
+}
+async function triggerBotMoveSafely(gameId, source) {
+    try {
+        await triggerBotMove(gameId);
+    }
+    catch (err) {
+        if (err?.message === "Game action already in progress") {
+            logger_1.logger.warn({ gameId, source }, "Skipped bot move due to in-progress action lock");
+            return;
+        }
+        logger_1.logger.error({ err, gameId, source }, "Bot move failed");
     }
 }

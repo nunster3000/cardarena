@@ -87,6 +87,14 @@ function seatCardCount(state: GameState | undefined, seat: number) {
   return 0;
 }
 
+function seatForPosition(mySeat: number, position: "top" | "right" | "bottom" | "left") {
+  const base = [1, 2, 3, 4];
+  const myIndex = Math.max(0, base.indexOf(mySeat || 1));
+  const shift = myIndex - 2; // bottom position should always be the local player
+  const posIndex = position === "top" ? 0 : position === "right" ? 1 : position === "bottom" ? 2 : 3;
+  return base[(posIndex + shift + 4) % 4];
+}
+
 export default function PlayPage() {
   const params = useParams<{ gameId: string }>();
   const gameId = params?.gameId;
@@ -262,10 +270,14 @@ export default function PlayPage() {
     };
     return [...hand].sort((a, b) => suitOrder[a.suit] - suitOrder[b.suit] || a.rank - b.rank);
   }, [game, mySeat]);
-  const seat1Count = seatCardCount(game?.state, 1);
-  const seat2Count = seatCardCount(game?.state, 2);
-  const seat3Count = seatCardCount(game?.state, 3);
-  const seat4Count = seatCardCount(game?.state, 4);
+  const topSeat = seatForPosition(mySeat || 1, "top");
+  const rightSeat = seatForPosition(mySeat || 1, "right");
+  const bottomSeat = seatForPosition(mySeat || 1, "bottom");
+  const leftSeat = seatForPosition(mySeat || 1, "left");
+  const topCount = seatCardCount(game?.state, topSeat);
+  const rightCount = seatCardCount(game?.state, rightSeat);
+  const bottomCount = seatCardCount(game?.state, bottomSeat);
+  const leftCount = seatCardCount(game?.state, leftSeat);
 
   async function unlockAudioIfNeeded() {
     if (audioUnlockedRef.current) return;
@@ -584,32 +596,32 @@ export default function PlayPage() {
 
         <div className="relative mt-6 h-[380px] rounded-2xl border border-white/10 bg-black/20 p-4">
           <div className="absolute left-1/2 top-3 -translate-x-1/2 text-center">
-            <p className="text-[11px] text-white/70">Seat 1</p>
+            <p className="text-[11px] text-white/70">Seat {topSeat}{topSeat === mySeat ? " (You)" : ""}</p>
             <div className={`relative mx-auto mt-1 h-10 w-16 overflow-hidden rounded-md ${backClass[deckBack]} ring-1 ring-white/20`}>
               <Image src="/cardarena-logo.png" alt="CardArena card back" fill sizes="64px" className="object-contain opacity-35" />
             </div>
-            <p className="mt-1 text-[10px] text-white/60">{seat1Count} cards</p>
+            <p className="mt-1 text-[10px] text-white/60">{topCount} cards</p>
           </div>
           <div className="absolute right-3 top-1/2 -translate-y-1/2 text-center">
-            <p className="text-[11px] text-white/70">Seat 2</p>
+            <p className="text-[11px] text-white/70">Seat {rightSeat}{rightSeat === mySeat ? " (You)" : ""}</p>
             <div className={`relative mx-auto mt-1 h-16 w-10 overflow-hidden rounded-md ${backClass[deckBack]} ring-1 ring-white/20`}>
               <Image src="/cardarena-logo.png" alt="CardArena card back" fill sizes="40px" className="object-contain opacity-35" />
             </div>
-            <p className="mt-1 text-[10px] text-white/60">{seat2Count} cards</p>
+            <p className="mt-1 text-[10px] text-white/60">{rightCount} cards</p>
           </div>
           <div className="absolute bottom-3 left-1/2 -translate-x-1/2 text-center">
-            <p className="text-[11px] text-white/70">Seat 3</p>
+            <p className="text-[11px] text-white/70">Seat {bottomSeat}{bottomSeat === mySeat ? " (You)" : ""}</p>
             <div className={`relative mx-auto mt-1 h-10 w-16 overflow-hidden rounded-md ${backClass[deckBack]} ring-1 ring-white/20`}>
               <Image src="/cardarena-logo.png" alt="CardArena card back" fill sizes="64px" className="object-contain opacity-35" />
             </div>
-            <p className="mt-1 text-[10px] text-white/60">{seat3Count} cards</p>
+            <p className="mt-1 text-[10px] text-white/60">{bottomCount} cards</p>
           </div>
           <div className="absolute left-3 top-1/2 -translate-y-1/2 text-center">
-            <p className="text-[11px] text-white/70">Seat 4</p>
+            <p className="text-[11px] text-white/70">Seat {leftSeat}{leftSeat === mySeat ? " (You)" : ""}</p>
             <div className={`relative mx-auto mt-1 h-16 w-10 overflow-hidden rounded-md ${backClass[deckBack]} ring-1 ring-white/20`}>
               <Image src="/cardarena-logo.png" alt="CardArena card back" fill sizes="40px" className="object-contain opacity-35" />
             </div>
-            <p className="mt-1 text-[10px] text-white/60">{seat4Count} cards</p>
+            <p className="mt-1 text-[10px] text-white/60">{leftCount} cards</p>
           </div>
 
           <div
@@ -660,12 +672,22 @@ export default function PlayPage() {
           ) : null}
 
           {phase === "BIDDING" ? (
-            <div className="flex flex-wrap items-center gap-2">
-              <p className="text-sm text-white/80">Bidding phase {myTurn ? "(your turn)" : ""}</p>
-              <input value={bidValue} onChange={(e) => setBidValue(e.target.value)} type="number" min={0} max={13} className="w-20 rounded bg-white/10 px-2 py-1 text-sm ring-1 ring-white/20" />
-              <button disabled={!myTurn || submitting} onClick={submitBidAction} className="rounded bg-emerald-500 px-3 py-1 text-sm font-semibold text-slate-900 disabled:opacity-50">
-                Submit Bid
-              </button>
+            <div className="space-y-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <p className="text-sm text-white/80">Bidding phase {myTurn ? "(your turn)" : ""}</p>
+                <input value={bidValue} onChange={(e) => setBidValue(e.target.value)} type="number" min={0} max={13} className="w-20 rounded bg-white/10 px-2 py-1 text-sm ring-1 ring-white/20" />
+                <button disabled={!myTurn || submitting} onClick={submitBidAction} className="rounded bg-emerald-500 px-3 py-1 text-sm font-semibold text-slate-900 disabled:opacity-50">
+                  Submit Bid
+                </button>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {myHand.map((card) => (
+                  <div key={cardId(card)} className={`h-20 w-14 rounded-md bg-gradient-to-b ${themeClass[deckTheme]} p-1 text-center shadow-md ring-1 ring-black/20`}>
+                    <p className={`text-[11px] ${suitColor(card.suit)}`}>{rankLabel(card.rank)}</p>
+                    <p className={`text-xl leading-6 ${suitColor(card.suit)}`}>{suitSymbol[card.suit]}</p>
+                  </div>
+                ))}
+              </div>
             </div>
           ) : null}
 
