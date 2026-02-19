@@ -223,6 +223,23 @@ export function getMatchmakingHealth() {
   };
 }
 
+export async function createFreeBotsGame(userId: string, meta?: QueueMeta) {
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    include: { wallet: true },
+  });
+
+  if (!user) throw new Error("User not found");
+  if (user.isFrozen) throw new Error("Account is frozen");
+  if (!user.wallet) throw new Error("Wallet not found");
+  if (user.wallet.isFrozen) throw new Error("Wallet is frozen");
+
+  const metaByUserId = new Map<string, QueueMeta | undefined>([[userId, meta]]);
+  const { game } = await createTournamentWithPlayers([userId], 0, metaByUserId, 3);
+  incMetric("matchmaking.bots_game.created.total");
+  return game.id;
+}
+
 export async function forceFillWithBots(userId: string, entryFee = 0) {
   if (entryFee !== 0) return null;
 

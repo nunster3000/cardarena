@@ -277,6 +277,36 @@ export default function DashboardPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token, queueingTableId]);
 
+  useEffect(() => {
+    if (!token) return;
+    if (queueingTableId !== "free") return;
+
+    let canceled = false;
+    const checkActive = async () => {
+      try {
+        const active = await api("/api/v1/games/me/active");
+        const game = active?.data;
+        if (!canceled && game?.id) {
+          setMessage("Game is ready. Loading table...");
+          enterGame(game.id);
+        }
+      } catch {
+        // Keep trying while queueing.
+      }
+    };
+
+    void checkActive();
+    const interval = setInterval(() => {
+      void checkActive();
+    }, 1200);
+
+    return () => {
+      canceled = true;
+      clearInterval(interval);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token, queueingTableId]);
+
   async function saveProfile(payload: { avatarPreset?: string; avatarUrl?: string; bio?: string }) {
     try {
       await api("/api/v1/users/me/profile", {
@@ -526,6 +556,26 @@ export default function DashboardPage() {
     }
   }
 
+  async function startFreeBotsGame() {
+    if (!token) return;
+    try {
+      setQueueingTableId("free");
+      setQueueSeconds(0);
+      setMessage("Creating bot table...");
+      const body = await api("/api/v1/games/queue/free/bots", { method: "POST" });
+      if (body?.gameId) {
+        setMessage("Bot table ready. Loading game...");
+        enterGame(body.gameId);
+        return;
+      }
+      throw new Error("Unable to create bot table");
+    } catch (err: unknown) {
+      setQueueingTableId(null);
+      setQueueSeconds(0);
+      setMessage(err instanceof Error ? err.message : "Unable to start bot game");
+    }
+  }
+
   async function cancelQueue() {
     try {
       socketRef.current?.emit("cancel_find_table", { entryFee: 0 });
@@ -602,7 +652,16 @@ export default function DashboardPage() {
           if (body?.gameId) {
             setMessage("Bots seated. Loading table...");
             enterGame(body.gameId);
+            return;
           }
+          return api("/api/v1/games/me/active")
+            .then((active) => {
+              if (active?.data?.id) {
+                setMessage("Game is ready. Loading table...");
+                enterGame(active.data.id);
+              }
+            })
+            .catch(() => undefined);
         })
         .catch(() => undefined);
     }
@@ -1122,6 +1181,10 @@ export default function DashboardPage() {
                             return;
                           }
                           queuePartyForFreeTable();
+                          return;
+                        }
+                        if (freeQueueMode === "BOTS") {
+                          startFreeBotsGame();
                           return;
                         }
                         startFreeQueue();

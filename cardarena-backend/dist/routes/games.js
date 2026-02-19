@@ -87,6 +87,21 @@ router.post("/queue/free/fill-bots", async (req, res, next) => {
         next(err);
     }
 });
+router.post("/queue/free/bots", async (req, res, next) => {
+    try {
+        const gameId = await (0, matchmaking_1.createFreeBotsGame)(req.userId, {
+            ip: req.ip || null,
+            userAgent: req.headers["user-agent"] || null,
+            device: req.headers["sec-ch-ua-platform"] ||
+                req.headers["user-agent"] ||
+                null,
+        });
+        res.json({ success: true, gameId });
+    }
+    catch (err) {
+        next(err);
+    }
+});
 router.get("/:gameId", async (req, res, next) => {
     try {
         (0, metrics_1.incMetric)("games.fetch.requests.total");

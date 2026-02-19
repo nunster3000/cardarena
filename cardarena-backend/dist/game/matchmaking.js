@@ -5,6 +5,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.leaveQueue = leaveQueue;
 exports.getMatchmakingHealth = getMatchmakingHealth;
+exports.createFreeBotsGame = createFreeBotsGame;
 exports.forceFillWithBots = forceFillWithBots;
 exports.joinQueue = joinQueue;
 const crypto_1 = __importDefault(require("crypto"));
@@ -204,6 +205,24 @@ function getMatchmakingHealth() {
             : Object.fromEntries(Object.entries(waitingQueues).map(([fee, players]) => [fee, players.length])),
         pendingCallbacks: redisEnabled ? "local_only" : pendingCallbacks.size,
     };
+}
+async function createFreeBotsGame(userId, meta) {
+    const user = await db_1.prisma.user.findUnique({
+        where: { id: userId },
+        include: { wallet: true },
+    });
+    if (!user)
+        throw new Error("User not found");
+    if (user.isFrozen)
+        throw new Error("Account is frozen");
+    if (!user.wallet)
+        throw new Error("Wallet not found");
+    if (user.wallet.isFrozen)
+        throw new Error("Wallet is frozen");
+    const metaByUserId = new Map([[userId, meta]]);
+    const { game } = await createTournamentWithPlayers([userId], 0, metaByUserId, 3);
+    (0, metrics_1.incMetric)("matchmaking.bots_game.created.total");
+    return game.id;
 }
 async function forceFillWithBots(userId, entryFee = 0) {
     if (entryFee !== 0)
