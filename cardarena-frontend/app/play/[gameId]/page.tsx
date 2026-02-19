@@ -9,6 +9,7 @@ import { closeGameSocket, getGameSocket } from "../../../lib/socket";
 
 const space = Space_Grotesk({ subsets: ["latin"] });
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:3000";
+const TURN_TIMER_MS = 8000;
 
 type Card = { suit: "SPADES" | "HEARTS" | "DIAMONDS" | "CLUBS"; rank: number };
 type TrickCard = Card & { seat: number };
@@ -95,6 +96,12 @@ function seatForPosition(mySeat: number, position: "top" | "right" | "bottom" | 
   return base[(posIndex + shift + 4) % 4];
 }
 
+function bidForSeat(state: GameState | undefined, seat: number) {
+  if (!state?.bids) return null;
+  const value = state.bids[String(seat)] ?? (state.bids as Record<number, number>)[seat];
+  return typeof value === "number" ? value : value != null ? Number(value) : null;
+}
+
 export default function PlayPage() {
   const params = useParams<{ gameId: string }>();
   const gameId = params?.gameId;
@@ -120,6 +127,9 @@ export default function PlayPage() {
   const [sfxVolume, setSfxVolume] = useState(0.8);
   const [parallax, setParallax] = useState({ x: 0, y: 0 });
   const [spotlight, setSpotlight] = useState({ x: 50, y: 50, active: false });
+  const [turnDeadlineMs, setTurnDeadlineMs] = useState<number | null>(null);
+  const [turnNowMs, setTurnNowMs] = useState(Date.now());
+  const [bookFx, setBookFx] = useState<Array<{ id: number; team: "A" | "B" }>>([]);
 
   const holdTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const tapRef = useRef<{ id: string; at: number } | null>(null);
@@ -130,6 +140,8 @@ export default function PlayPage() {
   const slamAudioRef = useRef<HTMLAudioElement | null>(null);
   const spadeBreakAudioRef = useRef<HTMLAudioElement | null>(null);
   const audioUnlockedRef = useRef(false);
+  const nextBookFxIdRef = useRef(1);
+  const prevTricksRef = useRef({ a: 0, b: 0 });
 
   async function api(path: string, init: RequestInit = {}) {
     const res = await fetch(`${API_BASE}${path}`, {
@@ -278,6 +290,50 @@ export default function PlayPage() {
   const rightCount = seatCardCount(game?.state, rightSeat);
   const bottomCount = seatCardCount(game?.state, bottomSeat);
   const leftCount = seatCardCount(game?.state, leftSeat);
+  const showTurnTimer = phase === "BIDDING" || phase === "PLAYING";
+  const turnMarker = `${phase}:${game?.state?.currentTurnSeat ?? 0}:${Object.keys(game?.state?.bids || {}).length}:${game?.state?.trick?.length ?? 0}:${game?.state?.completedTricks ?? 0}`;
+  const turnRemainingMs = turnDeadlineMs ? Math.max(0, turnDeadlineMs - turnNowMs) : TURN_TIMER_MS;
+  const turnRemainingSec = Math.ceil(turnRemainingMs / 1000);
+  const turnProgressPct = Math.max(0, Math.min(100, (turnRemainingMs / TURN_TIMER_MS) * 100));
+
+  function spawnBookFx(team: "A" | "B") {
+    const id = nextBookFxIdRef.current++;
+    setBookFx((prev) => [...prev, { id, team }]);
+    setTimeout(() => {
+      setBookFx((prev) => prev.filter((fx) => fx.id !== id));
+    }, 850);
+  }
+
+  useEffect(() => {
+    const interval = setInterval(() => setTurnNowMs(Date.now()), 100);
+    return () => clearInterval(interval);
+  }, []);
+
+  useEffect(() => {
+    if (!showTurnTimer) {
+      setTurnDeadlineMs(null);
+      return;
+    }
+    setTurnDeadlineMs(Date.now() + TURN_TIMER_MS);
+  }, [showTurnTimer, turnMarker]);
+
+  useEffect(() => {
+    const a = Number(game?.state?.teamATricks ?? 0);
+    const b = Number(game?.state?.teamBTricks ?? 0);
+    const prev = prevTricksRef.current;
+
+    if (a > prev.a) {
+      const diff = a - prev.a;
+      for (let i = 0; i < diff; i++) spawnBookFx("A");
+    }
+    if (b > prev.b) {
+      const diff = b - prev.b;
+      for (let i = 0; i < diff; i++) spawnBookFx("B");
+    }
+
+    prevTricksRef.current = { a, b };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [game?.state?.teamATricks, game?.state?.teamBTricks]);
 
   async function unlockAudioIfNeeded() {
     if (audioUnlockedRef.current) return;
@@ -335,15 +391,10 @@ export default function PlayPage() {
     try {
       await unlockAudioIfNeeded();
       setSubmitting(true);
-      const socket = getGameSocket(token);
-      if (socket.connected) {
-        socket.emit("place_bid", { gameId, bid: Number(bidValue) });
-      } else {
-        await api(`/api/v1/games/${gameId}/bid`, {
-          method: "POST",
-          body: JSON.stringify({ bid: Number(bidValue) }),
-        });
-      }
+      await api(`/api/v1/games/${gameId}/bid`, {
+        method: "POST",
+        body: JSON.stringify({ bid: Number(bidValue) }),
+      });
       setMessage("Bid submitted.");
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Unable to submit bid");
@@ -544,16 +595,16 @@ export default function PlayPage() {
         />
         <div className="pointer-events-none absolute inset-6 rounded-[30px] border border-white/10" />
         <div
-          className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 text-center opacity-20 transition-transform duration-150"
+          className="pointer-events-none absolute left-1/2 top-1/2 z-0 -translate-x-1/2 -translate-y-1/2 text-center opacity-25 transition-transform duration-150"
           style={{
-            transform: `translate3d(calc(-50% + ${parallax.x * 10}px), calc(-50% + ${parallax.y * 8}px), 0)`,
+            transform: `translate3d(calc(-50% + ${parallax.x * 6}px), calc(-50% + ${parallax.y * 4}px), 0)`,
           }}
         >
           <Image
             src="/cardarena-logo.png"
             alt="CardArena"
-            width={280}
-            height={90}
+            width={560}
+            height={180}
             className="mx-auto object-contain"
           />
           <p className="mt-2 text-xs tracking-[0.6em] text-emerald-200">COMPETE</p>
@@ -594,9 +645,29 @@ export default function PlayPage() {
           </div>
         </div>
 
+        {showTurnTimer && (
+          <div className="relative z-10 mt-3 rounded-xl border border-amber-300/35 bg-black/35 p-2 text-xs">
+            <div className="mb-1 flex items-center justify-between">
+              <p className="font-semibold text-amber-200">
+                ⏳ Turn Timer: Seat {game?.state?.currentTurnSeat ?? "-"} ({turnRemainingSec}s)
+              </p>
+              <p className={myTurn ? "text-emerald-300" : "text-white/70"}>{myTurn ? "Your turn" : "Waiting"}</p>
+            </div>
+            <div className="h-2 overflow-hidden rounded-full bg-white/15">
+              <div
+                className={`h-full transition-all duration-100 ${turnProgressPct <= 25 ? "bg-rose-400" : "bg-amber-300"}`}
+                style={{ width: `${turnProgressPct}%` }}
+              />
+            </div>
+          </div>
+        )}
+
         <div className="relative mt-6 h-[380px] rounded-2xl border border-white/10 bg-black/20 p-4">
           <div className="absolute left-1/2 top-3 -translate-x-1/2 text-center">
             <p className="text-[11px] text-white/70">Seat {topSeat}{topSeat === mySeat ? " (You)" : ""}</p>
+            <p className="text-[11px] font-semibold text-amber-200">
+              Bid: {bidForSeat(game?.state, topSeat) ?? "-"}
+            </p>
             <div className={`relative mx-auto mt-1 h-10 w-16 overflow-hidden rounded-md ${backClass[deckBack]} ring-1 ring-white/20`}>
               <Image src="/cardarena-logo.png" alt="CardArena card back" fill sizes="64px" className="object-contain opacity-35" />
             </div>
@@ -604,6 +675,9 @@ export default function PlayPage() {
           </div>
           <div className="absolute right-3 top-1/2 -translate-y-1/2 text-center">
             <p className="text-[11px] text-white/70">Seat {rightSeat}{rightSeat === mySeat ? " (You)" : ""}</p>
+            <p className="text-[11px] font-semibold text-amber-200">
+              Bid: {bidForSeat(game?.state, rightSeat) ?? "-"}
+            </p>
             <div className={`relative mx-auto mt-1 h-16 w-10 overflow-hidden rounded-md ${backClass[deckBack]} ring-1 ring-white/20`}>
               <Image src="/cardarena-logo.png" alt="CardArena card back" fill sizes="40px" className="object-contain opacity-35" />
             </div>
@@ -611,6 +685,9 @@ export default function PlayPage() {
           </div>
           <div className="absolute bottom-3 left-1/2 -translate-x-1/2 text-center">
             <p className="text-[11px] text-white/70">Seat {bottomSeat}{bottomSeat === mySeat ? " (You)" : ""}</p>
+            <p className="text-[11px] font-semibold text-amber-200">
+              Bid: {bidForSeat(game?.state, bottomSeat) ?? "-"}
+            </p>
             <div className={`relative mx-auto mt-1 h-10 w-16 overflow-hidden rounded-md ${backClass[deckBack]} ring-1 ring-white/20`}>
               <Image src="/cardarena-logo.png" alt="CardArena card back" fill sizes="64px" className="object-contain opacity-35" />
             </div>
@@ -618,6 +695,9 @@ export default function PlayPage() {
           </div>
           <div className="absolute left-3 top-1/2 -translate-y-1/2 text-center">
             <p className="text-[11px] text-white/70">Seat {leftSeat}{leftSeat === mySeat ? " (You)" : ""}</p>
+            <p className="text-[11px] font-semibold text-amber-200">
+              Bid: {bidForSeat(game?.state, leftSeat) ?? "-"}
+            </p>
             <div className={`relative mx-auto mt-1 h-16 w-10 overflow-hidden rounded-md ${backClass[deckBack]} ring-1 ring-white/20`}>
               <Image src="/cardarena-logo.png" alt="CardArena card back" fill sizes="40px" className="object-contain opacity-35" />
             </div>
@@ -625,31 +705,13 @@ export default function PlayPage() {
           </div>
 
           <div
-            className="pointer-events-none absolute left-[18%] top-[56%] z-0 hidden -translate-y-1/2 md:block"
-            style={{
-              transform: `translate3d(${parallax.x * 14}px, ${parallax.y * 10}px, 0) rotate(${parallax.x * 3}deg)`,
-            }}
-          >
-            <div className={`relative h-20 w-14 rounded-md ${backClass[deckBack]} ring-1 ring-white/20 animate-[deckFloat_4.4s_ease-in-out_infinite]`}>
-              <Image src="/cardarena-logo.png" alt="CardArena deck back" fill sizes="56px" className="object-contain opacity-35" />
-            </div>
-            <div className={`relative -mt-16 ml-1 h-20 w-14 rounded-md ${backClass[deckBack]} ring-1 ring-white/20 animate-[deckFloatAlt_4.9s_ease-in-out_infinite]`}>
-              <Image src="/cardarena-logo.png" alt="CardArena deck back" fill sizes="56px" className="object-contain opacity-35" />
-            </div>
-            <div className={`relative -mt-16 ml-2 h-20 w-14 rounded-md ${backClass[deckBack]} ring-1 ring-white/20 animate-[deckFloat_5.6s_ease-in-out_infinite]`}>
-              <Image src="/cardarena-logo.png" alt="CardArena deck back" fill sizes="56px" className="object-contain opacity-35" />
-            </div>
-          </div>
-
-          <div
             ref={playZoneRef}
-            className="absolute left-1/2 top-1/2 z-10 h-44 w-44 -translate-x-1/2 -translate-y-1/2 rounded-full border border-cyan-300/40 bg-black/25 transition-transform duration-100"
+            className="absolute left-1/2 top-1/2 z-10 h-56 w-56 -translate-x-1/2 -translate-y-1/2 transition-transform duration-100"
             style={{
-              transform: `translate3d(calc(-50% + ${parallax.x * 6}px), calc(-50% + ${parallax.y * 5}px), 0)`,
+              transform: `translate3d(calc(-50% + ${parallax.x * 3}px), calc(-50% + ${parallax.y * 2}px), 0)`,
             }}
           >
-            <p className="pt-3 text-center text-[11px] text-cyan-200">Play Zone</p>
-            <div className="mt-2 flex flex-wrap items-center justify-center gap-2 px-2">
+            <div className="mt-24 flex flex-wrap items-center justify-center gap-2 px-2">
               {(game?.state?.trick || []).map((c, idx) => (
                 <div key={`${c.seat}-${idx}`} className={`h-16 w-11 rounded-md bg-gradient-to-b ${themeClass[deckTheme]} p-1 text-center shadow-md`}>
                   <p className={`text-[10px] ${suitColor(c.suit)}`}>{rankLabel(c.rank)}</p>
@@ -659,6 +721,26 @@ export default function PlayPage() {
               ))}
             </div>
           </div>
+
+          {phase === "PLAYING" && (
+            <>
+              <div className="absolute left-3 top-3 z-20 rounded-lg border border-white/20 bg-black/45 px-2 py-1 text-[11px] shadow-lg">
+                <p className="text-emerald-300">Team A Books: {game?.state?.teamATricks ?? 0}</p>
+              </div>
+              <div className="absolute right-3 top-3 z-20 rounded-lg border border-white/20 bg-black/45 px-2 py-1 text-[11px] shadow-lg">
+                <p className="text-blue-300">Team B Books: {game?.state?.teamBTricks ?? 0}</p>
+              </div>
+            </>
+          )}
+
+          {bookFx.map((fx) => (
+            <div
+              key={fx.id}
+              className={`pointer-events-none absolute left-1/2 top-1/2 z-30 h-8 w-6 -translate-x-1/2 -translate-y-1/2 rounded border border-white/60 bg-white/90 shadow-md ${
+                fx.team === "A" ? "animate-[bookToTopLeft_850ms_ease-out_forwards]" : "animate-[bookToTopRight_850ms_ease-out_forwards]"
+              }`}
+            />
+          ))}
         </div>
 
         <div className="mt-4 rounded-2xl border border-white/10 bg-black/25 p-3">
@@ -674,11 +756,7 @@ export default function PlayPage() {
           {phase === "BIDDING" ? (
             <div className="space-y-2">
               <div className="flex flex-wrap items-center gap-2">
-                <p className="text-sm text-white/80">Bidding phase {myTurn ? "(your turn)" : ""}</p>
-                <input value={bidValue} onChange={(e) => setBidValue(e.target.value)} type="number" min={0} max={13} className="w-20 rounded bg-white/10 px-2 py-1 text-sm ring-1 ring-white/20" />
-                <button disabled={!myTurn || submitting} onClick={submitBidAction} className="rounded bg-emerald-500 px-3 py-1 text-sm font-semibold text-slate-900 disabled:opacity-50">
-                  Submit Bid
-                </button>
+                <p className="text-sm text-white/80">Bidding phase {myTurn ? "(your turn)" : "(waiting)"}</p>
               </div>
               <div className="flex flex-wrap gap-2">
                 {myHand.map((card) => (
@@ -688,6 +766,26 @@ export default function PlayPage() {
                   </div>
                 ))}
               </div>
+              {myTurn && (
+                <div className="mt-2 rounded-xl border border-white/20 bg-black/55 p-3">
+                  <p className="mb-2 text-lg font-semibold">Choose a bid:</p>
+                  <div className="grid grid-cols-7 gap-2">
+                    {Array.from({ length: 14 }, (_, i) => i).map((n) => (
+                      <button
+                        key={n}
+                        onClick={() => {
+                          setBidValue(String(n));
+                          void submitBidAction();
+                        }}
+                        disabled={submitting}
+                        className="rounded-lg border border-white/40 bg-white/10 px-3 py-2 text-lg font-semibold hover:bg-white/20 disabled:opacity-60"
+                      >
+                        {n}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           ) : null}
 
@@ -759,6 +857,14 @@ export default function PlayPage() {
           0% { transform: translateY(0px) rotate(0deg); }
           50% { transform: translateY(2px) rotate(1deg); }
           100% { transform: translateY(0px) rotate(0deg); }
+        }
+        @keyframes bookToTopLeft {
+          0% { transform: translate(-50%, -50%) scale(1); opacity: 1; }
+          100% { transform: translate(-530px, -190px) scale(0.55); opacity: 0; }
+        }
+        @keyframes bookToTopRight {
+          0% { transform: translate(-50%, -50%) scale(1); opacity: 1; }
+          100% { transform: translate(490px, -190px) scale(0.55); opacity: 0; }
         }
       `}</style>
     </main>

@@ -2,7 +2,17 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.withGameLock = withGameLock;
 const gameLocks = new Set();
+const LOCK_WAIT_MS = 20;
+const LOCK_MAX_WAIT_MS = 3000;
+function sleep(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+}
 async function withGameLock(gameId, fn) {
+    let waited = 0;
+    while (gameLocks.has(gameId) && waited < LOCK_MAX_WAIT_MS) {
+        await sleep(LOCK_WAIT_MS);
+        waited += LOCK_WAIT_MS;
+    }
     if (gameLocks.has(gameId)) {
         throw new Error("Game action already in progress");
     }

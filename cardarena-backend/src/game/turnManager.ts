@@ -1,5 +1,6 @@
 import { GamePhase } from "@prisma/client";
 import { prisma } from "../db";
+import { playCard } from "./play";
 import { triggerBotMoveSafely } from "./bot";
 import { logger } from "../utils/logger";
 
@@ -7,6 +8,36 @@ const turnTimers = new Map<string, NodeJS.Timeout>();
 
 const TURN_TIMEOUT_MS = 8000; // 8 seconds per move
 const DEFAULT_TIMEOUT_BID = 2;
+
+function chooseTimeoutCard(state: any, seat: number) {
+  const hand: Array<{ suit: string; rank: string | number }> = Array.isArray(state?.hands?.[seat])
+    ? state.hands[seat]
+    : [];
+  if (!hand.length) return null;
+
+  const trick: Array<{ suit: string; rank: string | number; seat: number }> = Array.isArray(state?.trick)
+    ? state.trick
+    : [];
+
+  // Leading card: avoid breaking spades if possible.
+  if (trick.length === 0) {
+    const spadesBroken = state?.spadesBroken === true;
+    if (!spadesBroken) {
+      const nonSpade = hand.find((c) => c.suit !== "SPADES");
+      if (nonSpade) return nonSpade;
+    }
+    return hand[0];
+  }
+
+  // Must follow suit when possible.
+  const leadSuit = trick[0]?.suit;
+  if (leadSuit) {
+    const follow = hand.find((c) => c.suit === leadSuit);
+    if (follow) return follow;
+  }
+
+  return hand[0];
+}
 
 export function startTurnTimer(gameId: string) {
   clearTurnTimer(gameId);
@@ -32,17 +63,17 @@ export function startTurnTimer(gameId: string) {
         return;
       }
 
-      if (!player.isBot) {
-        await prisma.gamePlayer.update({
-          where: { id: player.id },
-          data: {
-            isBot: true,
-            replacedByBot: true,
-          },
+      if (game.phase === GamePhase.PLAYING) {
+        const timeoutCard = chooseTimeoutCard(state, currentSeat);
+        if (!timeoutCard) return;
+        await playCard(gameId, currentSeat, {
+          suit: timeoutCard.suit,
+          rank: String(timeoutCard.rank),
         });
+        return;
       }
 
-      await triggerBotMoveSafely(gameId, "turn.timeout");
+      await triggerBotMoveSafely(gameId, "turn.timeout.other");
     } catch (err) {
       logger.error({ err, gameId }, "Turn timeout handler failed");
     }

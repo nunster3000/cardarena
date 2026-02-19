@@ -37,11 +37,40 @@ exports.startTurnTimer = startTurnTimer;
 exports.clearTurnTimer = clearTurnTimer;
 const client_1 = require("@prisma/client");
 const db_1 = require("../db");
+const play_1 = require("./play");
 const bot_1 = require("./bot");
 const logger_1 = require("../utils/logger");
 const turnTimers = new Map();
 const TURN_TIMEOUT_MS = 8000; // 8 seconds per move
 const DEFAULT_TIMEOUT_BID = 2;
+function chooseTimeoutCard(state, seat) {
+    const hand = Array.isArray(state?.hands?.[seat])
+        ? state.hands[seat]
+        : [];
+    if (!hand.length)
+        return null;
+    const trick = Array.isArray(state?.trick)
+        ? state.trick
+        : [];
+    // Leading card: avoid breaking spades if possible.
+    if (trick.length === 0) {
+        const spadesBroken = state?.spadesBroken === true;
+        if (!spadesBroken) {
+            const nonSpade = hand.find((c) => c.suit !== "SPADES");
+            if (nonSpade)
+                return nonSpade;
+        }
+        return hand[0];
+    }
+    // Must follow suit when possible.
+    const leadSuit = trick[0]?.suit;
+    if (leadSuit) {
+        const follow = hand.find((c) => c.suit === leadSuit);
+        if (follow)
+            return follow;
+    }
+    return hand[0];
+}
 function startTurnTimer(gameId) {
     clearTurnTimer(gameId);
     const timer = setTimeout(async () => {
@@ -63,16 +92,17 @@ function startTurnTimer(gameId) {
                 await submitBid(gameId, currentSeat, DEFAULT_TIMEOUT_BID);
                 return;
             }
-            if (!player.isBot) {
-                await db_1.prisma.gamePlayer.update({
-                    where: { id: player.id },
-                    data: {
-                        isBot: true,
-                        replacedByBot: true,
-                    },
+            if (game.phase === client_1.GamePhase.PLAYING) {
+                const timeoutCard = chooseTimeoutCard(state, currentSeat);
+                if (!timeoutCard)
+                    return;
+                await (0, play_1.playCard)(gameId, currentSeat, {
+                    suit: timeoutCard.suit,
+                    rank: String(timeoutCard.rank),
                 });
+                return;
             }
-            await (0, bot_1.triggerBotMoveSafely)(gameId, "turn.timeout");
+            await (0, bot_1.triggerBotMoveSafely)(gameId, "turn.timeout.other");
         }
         catch (err) {
             logger_1.logger.error({ err, gameId }, "Turn timeout handler failed");
