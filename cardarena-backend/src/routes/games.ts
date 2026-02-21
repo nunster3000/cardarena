@@ -9,6 +9,8 @@ import { playCard } from "../game/play";
 import { serializeGameStateForSeat } from "../game/stateView";
 import { incMetric } from "../monitoring/metrics";
 import { createFreeBotsGame, forceFillWithBots, joinQueue, leaveQueue } from "../game/matchmaking";
+import { emitGameStateForGame } from "../game/emitGameState";
+import { triggerBotMoveSafely } from "../game/bot";
 
 const router = Router();
 router.use(authMiddleware);
@@ -203,6 +205,101 @@ router.post("/:gameId/play", async (req: AuthRequest, res, next) => {
     const seat = await getPlayerSeat(gameId, req.userId!);
     const state = await playCard(gameId, seat, { suit, rank: String(rank) });
     res.json({ success: true, state: serializeGameStateForSeat(state, seat) });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post("/:gameId/leave", async (req: AuthRequest, res, next) => {
+  try {
+    incMetric("games.leave.requests.total");
+    const { gameId } = req.params;
+    const userId = req.userId!;
+
+    const game = await prisma.game.findUnique({
+      where: { id: gameId },
+      include: {
+        players: {
+          select: {
+            id: true,
+            seat: true,
+            userId: true,
+            isBot: true,
+          },
+        },
+      },
+    });
+    if (!game) throw new AppError("Game not found", 404);
+
+    const leavingPlayer = game.players.find((p) => p.userId === userId);
+    if (!leavingPlayer) throw new AppError("Not a player in this game", 403);
+
+    if (game.status === GameStatus.COMPLETED || game.status === GameStatus.CANCELLED) {
+      return res.json({ success: true, gameEnded: true });
+    }
+
+    const remainingHumans = game.players.filter(
+      (p) => p.id !== leavingPlayer.id && !p.isBot && Boolean(p.userId)
+    );
+    const noHumansRemaining = remainingHumans.length === 0;
+
+    const updated = await prisma.$transaction(async (tx) => {
+      await tx.gamePlayer.update({
+        where: { id: leavingPlayer.id },
+        data: {
+          userId: null,
+          isBot: true,
+          replacedByBot: true,
+          disconnectedAt: new Date(),
+        },
+      });
+
+      if (noHumansRemaining) {
+        const state = (game.state as Record<string, unknown>) || {};
+        const nextState = {
+          ...state,
+          phase: GamePhase.GAME_COMPLETE,
+        };
+
+        await tx.game.update({
+          where: { id: gameId },
+          data: {
+            status: GameStatus.COMPLETED,
+            phase: GamePhase.GAME_COMPLETE,
+            state: nextState,
+          },
+        });
+
+        await tx.gameMoveAudit.create({
+          data: {
+            gameId,
+            playerId: userId,
+            type: "END_GAME",
+            payload: { reason: "all_humans_left" },
+          },
+        });
+
+        return { ended: true, state: nextState };
+      }
+
+      const refreshed = await tx.game.findUnique({
+        where: { id: gameId },
+        select: { state: true },
+      });
+
+      return { ended: false, state: refreshed?.state ?? game.state };
+    });
+
+    await emitGameStateForGame(gameId, updated.state);
+    if (!updated.ended) {
+      await triggerBotMoveSafely(gameId, "games.leave");
+    }
+
+    res.json({
+      success: true,
+      gameEnded: updated.ended,
+      replacedWithBot: !updated.ended,
+    });
   } catch (err) {
     next(err);
   }

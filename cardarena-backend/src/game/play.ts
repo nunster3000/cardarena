@@ -33,6 +33,7 @@ export async function playCard(
     const state = game.state as unknown as GameState;
 
     if (!state) throw new Error("Game state missing");
+    state.phase = GamePhase.PLAYING;
 
     if (state.currentTurnSeat !== playerSeat) {
       throw new Error("Not your turn");

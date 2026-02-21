@@ -40,6 +40,7 @@ async function submitBid(gameId, playerSeat, bidValue) {
             const dealerSeat = state.dealerSeat;
             state.currentTurnSeat = dealerSeat === 4 ? 1 : dealerSeat + 1;
         }
+        state.phase = nextPhase;
         await db_1.prisma.game.update({
             where: { id: gameId },
             data: {

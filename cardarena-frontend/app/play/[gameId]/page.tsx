@@ -113,6 +113,7 @@ export default function PlayPage() {
   const [game, setGame] = useState<GamePayload | null>(null);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
+  const [leaving, setLeaving] = useState(false);
   const [bidValue, setBidValue] = useState("3");
   const [submitting, setSubmitting] = useState(false);
   const [selectedCard, setSelectedCard] = useState<string | null>(null);
@@ -132,6 +133,7 @@ export default function PlayPage() {
   const [turnDeadlineMs, setTurnDeadlineMs] = useState<number | null>(null);
   const [turnNowMs, setTurnNowMs] = useState(Date.now());
   const [bookFx, setBookFx] = useState<Array<{ id: number; team: "A" | "B" }>>([]);
+  const [throwFx, setThrowFx] = useState<Array<{ id: number; card: Card }>>([]);
 
   const holdTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const tapRef = useRef<{ id: string; at: number } | null>(null);
@@ -143,6 +145,7 @@ export default function PlayPage() {
   const spadeBreakAudioRef = useRef<HTMLAudioElement | null>(null);
   const audioUnlockedRef = useRef(false);
   const nextBookFxIdRef = useRef(1);
+  const nextThrowFxIdRef = useRef(1);
   const prevTricksRef = useRef({ a: 0, b: 0 });
 
   async function api(path: string, init: RequestInit = {}) {
@@ -217,7 +220,8 @@ export default function PlayPage() {
           setTimeout(() => setSpadeBreakFx(false), 1000);
         }
         prevSpadeBroken.current = Boolean(nextState?.spadesBroken);
-        return { ...prev, state: nextState };
+        const nextPhase = (nextState as any)?.phase || prev.phase;
+        return { ...prev, phase: nextPhase, state: nextState };
       });
       setSubmitting(false);
     };
@@ -272,7 +276,7 @@ export default function PlayPage() {
   }, []);
 
   const mySeat = game?.playerSeat || 0;
-  const phase = game?.phase || "WAITING";
+  const phase = (game?.state as any)?.phase || game?.phase || "WAITING";
   const myTurn = Boolean(game?.state && game.state.currentTurnSeat === mySeat);
   const myHand = useMemo(() => {
     const hand = (game?.state?.hands?.[String(mySeat)] || []) as Card[];
@@ -305,6 +309,14 @@ export default function PlayPage() {
     setTimeout(() => {
       setBookFx((prev) => prev.filter((fx) => fx.id !== id));
     }, 850);
+  }
+
+  function spawnThrowFx(card: Card) {
+    const id = nextThrowFxIdRef.current++;
+    setThrowFx((prev) => [...prev, { id, card }]);
+    setTimeout(() => {
+      setThrowFx((prev) => prev.filter((fx) => fx.id !== id));
+    }, 360);
   }
 
   useEffect(() => {
@@ -417,6 +429,7 @@ export default function PlayPage() {
     try {
       await unlockAudioIfNeeded();
       setSubmitting(true);
+      spawnThrowFx(card);
       if (slam) {
         setSlamPulse(true);
         setTableShake(true);
@@ -525,6 +538,21 @@ export default function PlayPage() {
     router.replace("/");
   }
 
+  async function leaveGameAction() {
+    if (!gameId || leaving) return;
+    const confirmed = window.confirm("Leave this game now?");
+    if (!confirmed) return;
+    try {
+      setLeaving(true);
+      await api(`/api/v1/games/${gameId}/leave`, { method: "POST" });
+      closeGameSocket();
+      router.push("/dashboard");
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Unable to leave game");
+      setLeaving(false);
+    }
+  }
+
   function onTableMouseMove(e: React.MouseEvent<HTMLDivElement>) {
     const rect = tableRef.current?.getBoundingClientRect();
     if (!rect) return;
@@ -580,6 +608,13 @@ export default function PlayPage() {
             <option value="neon">Deck: Neon</option>
             <option value="midnight">Deck: Midnight</option>
           </select>
+          <button
+            onClick={leaveGameAction}
+            disabled={leaving}
+            className="rounded bg-amber-500/30 px-3 py-1 text-xs hover:bg-amber-500/40 disabled:opacity-60"
+          >
+            {leaving ? "Leaving..." : "Leave Game"}
+          </button>
           <button onClick={() => router.push("/dashboard")} className="rounded bg-white/15 px-3 py-1 text-xs hover:bg-white/25">Dashboard</button>
           <button onClick={logout} className="rounded bg-red-500/30 px-3 py-1 text-xs hover:bg-red-500/40">Logout</button>
         </div>
@@ -658,7 +693,7 @@ export default function PlayPage() {
           <div
             className="pointer-events-none absolute left-1/2 top-1/2 z-0 -translate-x-1/2 -translate-y-1/2 text-center opacity-25 transition-transform duration-150"
             style={{
-              transform: `translate3d(calc(-50% + ${parallax.x * 4}px), calc(-50% + ${parallax.y * 3}px), 0)`,
+              transform: `translate(calc(-50% + ${parallax.x * 4}px), calc(-50% + ${parallax.y * 3}px))`,
             }}
           >
             <Image
@@ -716,10 +751,10 @@ export default function PlayPage() {
             ref={playZoneRef}
             className="absolute left-1/2 top-1/2 z-10 h-56 w-56 -translate-x-1/2 -translate-y-1/2 transition-transform duration-100"
             style={{
-              transform: `translate3d(calc(-50% + ${parallax.x * 3}px), calc(-50% + ${parallax.y * 2}px), 0)`,
+              transform: `translate(calc(-50% + ${parallax.x * 3}px), calc(-50% + ${parallax.y * 2}px))`,
             }}
           >
-            <div className="mt-24 flex flex-wrap items-center justify-center gap-2 px-2">
+            <div className="flex h-full w-full flex-wrap items-center justify-center gap-2 px-2">
               {(game?.state?.trick || []).map((c, idx) => (
                 <div key={`${c.seat}-${idx}`} className={`h-16 w-11 rounded-md bg-gradient-to-b ${themeClass[deckTheme]} p-1 text-center shadow-md`}>
                   <p className={`text-[10px] ${suitColor(c.suit)}`}>{rankLabel(c.rank)}</p>
@@ -729,6 +764,16 @@ export default function PlayPage() {
               ))}
             </div>
           </div>
+
+          {throwFx.map((fx) => (
+            <div
+              key={fx.id}
+              className={`pointer-events-none absolute left-1/2 top-[84%] z-30 h-16 w-11 -translate-x-1/2 -translate-y-1/2 rounded-md bg-gradient-to-b ${themeClass[deckTheme]} p-1 text-center shadow-xl ring-1 ring-black/30 animate-[throwToCenter_360ms_ease-out_forwards]`}
+            >
+              <p className={`text-[10px] ${suitColor(fx.card.suit)}`}>{rankLabel(fx.card.rank)}</p>
+              <p className={`text-xl leading-6 ${suitColor(fx.card.suit)}`}>{suitSymbol[fx.card.suit]}</p>
+            </div>
+          ))}
 
           {phase === "PLAYING" && (
             <>
@@ -878,6 +923,10 @@ export default function PlayPage() {
         @keyframes bookToTopRight {
           0% { transform: translate(-50%, -50%) scale(1); opacity: 1; }
           100% { transform: translate(490px, -190px) scale(0.55); opacity: 0; }
+        }
+        @keyframes throwToCenter {
+          0% { transform: translate(-50%, -50%) scale(1) rotate(0deg); opacity: 1; }
+          100% { transform: translate(-50%, -310%) scale(0.92) rotate(-8deg); opacity: 0.92; }
         }
       `}</style>
     </main>

@@ -54,6 +54,7 @@ export async function submitBid(
     const dealerSeat = state.dealerSeat;
     state.currentTurnSeat = dealerSeat === 4 ? 1 : dealerSeat + 1;
   }
+  state.phase = nextPhase;
 
   await prisma.game.update({
     where: { id: gameId },

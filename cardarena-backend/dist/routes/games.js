@@ -11,6 +11,8 @@ const play_1 = require("../game/play");
 const stateView_1 = require("../game/stateView");
 const metrics_1 = require("../monitoring/metrics");
 const matchmaking_1 = require("../game/matchmaking");
+const emitGameState_1 = require("../game/emitGameState");
+const bot_1 = require("../game/bot");
 const router = (0, express_1.Router)();
 router.use(auth_1.authMiddleware);
 async function getPlayerSeat(gameId, userId) {
@@ -187,6 +189,88 @@ router.post("/:gameId/play", async (req, res, next) => {
         const seat = await getPlayerSeat(gameId, req.userId);
         const state = await (0, play_1.playCard)(gameId, seat, { suit, rank: String(rank) });
         res.json({ success: true, state: (0, stateView_1.serializeGameStateForSeat)(state, seat) });
+    }
+    catch (err) {
+        next(err);
+    }
+});
+router.post("/:gameId/leave", async (req, res, next) => {
+    try {
+        (0, metrics_1.incMetric)("games.leave.requests.total");
+        const { gameId } = req.params;
+        const userId = req.userId;
+        const game = await db_1.prisma.game.findUnique({
+            where: { id: gameId },
+            include: {
+                players: {
+                    select: {
+                        id: true,
+                        seat: true,
+                        userId: true,
+                        isBot: true,
+                    },
+                },
+            },
+        });
+        if (!game)
+            throw new errorHandler_1.AppError("Game not found", 404);
+        const leavingPlayer = game.players.find((p) => p.userId === userId);
+        if (!leavingPlayer)
+            throw new errorHandler_1.AppError("Not a player in this game", 403);
+        if (game.status === client_1.GameStatus.COMPLETED || game.status === client_1.GameStatus.CANCELLED) {
+            return res.json({ success: true, gameEnded: true });
+        }
+        const remainingHumans = game.players.filter((p) => p.id !== leavingPlayer.id && !p.isBot && Boolean(p.userId));
+        const noHumansRemaining = remainingHumans.length === 0;
+        const updated = await db_1.prisma.$transaction(async (tx) => {
+            await tx.gamePlayer.update({
+                where: { id: leavingPlayer.id },
+                data: {
+                    userId: null,
+                    isBot: true,
+                    replacedByBot: true,
+                    disconnectedAt: new Date(),
+                },
+            });
+            if (noHumansRemaining) {
+                const state = game.state || {};
+                const nextState = {
+                    ...state,
+                    phase: client_1.GamePhase.GAME_COMPLETE,
+                };
+                await tx.game.update({
+                    where: { id: gameId },
+                    data: {
+                        status: client_1.GameStatus.COMPLETED,
+                        phase: client_1.GamePhase.GAME_COMPLETE,
+                        state: nextState,
+                    },
+                });
+                await tx.gameMoveAudit.create({
+                    data: {
+                        gameId,
+                        playerId: userId,
+                        type: "END_GAME",
+                        payload: { reason: "all_humans_left" },
+                    },
+                });
+                return { ended: true, state: nextState };
+            }
+            const refreshed = await tx.game.findUnique({
+                where: { id: gameId },
+                select: { state: true },
+            });
+            return { ended: false, state: refreshed?.state ?? game.state };
+        });
+        await (0, emitGameState_1.emitGameStateForGame)(gameId, updated.state);
+        if (!updated.ended) {
+            await (0, bot_1.triggerBotMoveSafely)(gameId, "games.leave");
+        }
+        res.json({
+            success: true,
+            gameEnded: updated.ended,
+            replacedWithBot: !updated.ended,
+        });
     }
     catch (err) {
         next(err);
