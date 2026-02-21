@@ -10,6 +10,7 @@ const turnManager_1 = require("./turnManager");
 const emitGameState_1 = require("./emitGameState");
 async function submitBid(gameId, playerSeat, bidValue) {
     return (0, gameLocks_1.withGameLock)(gameId, async () => {
+        (0, turnManager_1.clearTurnTimer)(gameId);
         const game = await db_1.prisma.game.findUnique({
             where: { id: gameId },
         });

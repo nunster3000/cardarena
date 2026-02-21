@@ -3,11 +3,40 @@ import { prisma } from "../db";
 import { playCard } from "./play";
 import { triggerBotMoveSafely } from "./bot";
 import { logger } from "../utils/logger";
+import { Prisma } from "@prisma/client";
+import { emitGameStateForGame } from "./emitGameState";
 
-const turnTimers = new Map<string, NodeJS.Timeout>();
+type TurnTimerEntry = {
+  handle: NodeJS.Timeout;
+};
+
+const turnTimers = new Map<string, TurnTimerEntry>();
 
 const TURN_TIMEOUT_MS = 8000; // 8 seconds per move
 const DEFAULT_TIMEOUT_BID = 2;
+
+async function syncTurnDeadline(gameId: string, deadlineAt: number | null) {
+  const game = await prisma.game.findUnique({
+    where: { id: gameId },
+    select: { state: true },
+  });
+  if (!game?.state || typeof game.state !== "object") return;
+
+  const nextState = {
+    ...(game.state as Record<string, unknown>),
+    turnDeadlineAt: deadlineAt,
+    turnTimeoutMs: TURN_TIMEOUT_MS,
+  };
+
+  await prisma.game.update({
+    where: { id: gameId },
+    data: {
+      state: nextState as Prisma.InputJsonObject,
+    },
+  });
+
+  await emitGameStateForGame(gameId, nextState);
+}
 
 function chooseTimeoutCard(state: any, seat: number) {
   const hand: Array<{ suit: string; rank: string | number }> = Array.isArray(state?.hands?.[seat])
@@ -41,9 +70,15 @@ function chooseTimeoutCard(state: any, seat: number) {
 
 export function startTurnTimer(gameId: string) {
   clearTurnTimer(gameId);
+  const deadlineAt = Date.now() + TURN_TIMEOUT_MS;
 
   const timer = setTimeout(async () => {
     try {
+      const activeTimer = turnTimers.get(gameId);
+      if (!activeTimer || activeTimer.handle !== timer) {
+        return;
+      }
+
       const game = await prisma.game.findUnique({
         where: { id: gameId },
       });
@@ -79,13 +114,19 @@ export function startTurnTimer(gameId: string) {
     }
   }, TURN_TIMEOUT_MS);
 
-  turnTimers.set(gameId, timer);
+  turnTimers.set(gameId, { handle: timer });
+  void syncTurnDeadline(gameId, deadlineAt).catch((err) => {
+    logger.error({ err, gameId }, "Failed to sync turn deadline");
+  });
 }
 
 export function clearTurnTimer(gameId: string) {
   const existing = turnTimers.get(gameId);
   if (existing) {
-    clearTimeout(existing);
+    clearTimeout(existing.handle);
     turnTimers.delete(gameId);
   }
+  void syncTurnDeadline(gameId, null).catch((err) => {
+    logger.error({ err, gameId }, "Failed to clear turn deadline");
+  });
 }

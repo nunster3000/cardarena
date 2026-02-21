@@ -3,7 +3,7 @@ import { GamePhase } from "@prisma/client";
 import { Prisma } from "@prisma/client";
 import { triggerBotMoveSafely } from "./bot";
 import { withGameLock } from "./gameLocks";
-import { startTurnTimer } from "./turnManager";
+import { clearTurnTimer, startTurnTimer } from "./turnManager";
 import { emitGameStateForGame } from "./emitGameState";
 
 export async function submitBid(
@@ -12,6 +12,8 @@ export async function submitBid(
   bidValue: number
 ) {
   return withGameLock(gameId, async () => {
+    clearTurnTimer(gameId);
+
     const game = await prisma.game.findUnique({
       where: { id: gameId },
     });

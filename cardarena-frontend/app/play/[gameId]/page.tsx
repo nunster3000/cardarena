@@ -25,6 +25,8 @@ type GameState = {
   teamAScore: number;
   teamBScore: number;
   spadesBroken: boolean;
+  turnDeadlineAt?: number | null;
+  turnTimeoutMs?: number;
 };
 
 type GamePayload = {
@@ -291,10 +293,11 @@ export default function PlayPage() {
   const bottomCount = seatCardCount(game?.state, bottomSeat);
   const leftCount = seatCardCount(game?.state, leftSeat);
   const showTurnTimer = phase === "BIDDING" || phase === "PLAYING";
-  const turnMarker = `${phase}:${game?.state?.currentTurnSeat ?? 0}:${Object.keys(game?.state?.bids || {}).length}:${game?.state?.trick?.length ?? 0}:${game?.state?.completedTricks ?? 0}`;
-  const turnRemainingMs = turnDeadlineMs ? Math.max(0, turnDeadlineMs - turnNowMs) : TURN_TIMER_MS;
+  const turnBudgetMs = Number(game?.state?.turnTimeoutMs ?? TURN_TIMER_MS) || TURN_TIMER_MS;
+  const turnMarker = `${phase}:${game?.state?.currentTurnSeat ?? 0}:${Object.keys(game?.state?.bids || {}).length}:${game?.state?.trick?.length ?? 0}:${game?.state?.completedTricks ?? 0}:${game?.state?.turnDeadlineAt ?? 0}`;
+  const turnRemainingMs = turnDeadlineMs ? Math.max(0, turnDeadlineMs - turnNowMs) : turnBudgetMs;
   const turnRemainingSec = Math.ceil(turnRemainingMs / 1000);
-  const turnProgressPct = Math.max(0, Math.min(100, (turnRemainingMs / TURN_TIMER_MS) * 100));
+  const turnProgressPct = Math.max(0, Math.min(100, (turnRemainingMs / turnBudgetMs) * 100));
 
   function spawnBookFx(team: "A" | "B") {
     const id = nextBookFxIdRef.current++;
@@ -314,8 +317,13 @@ export default function PlayPage() {
       setTurnDeadlineMs(null);
       return;
     }
-    setTurnDeadlineMs(Date.now() + TURN_TIMER_MS);
-  }, [showTurnTimer, turnMarker]);
+    const serverDeadline = Number(game?.state?.turnDeadlineAt ?? 0);
+    if (Number.isFinite(serverDeadline) && serverDeadline > Date.now() - 1500) {
+      setTurnDeadlineMs(serverDeadline);
+      return;
+    }
+    setTurnDeadlineMs(Date.now() + turnBudgetMs);
+  }, [showTurnTimer, turnMarker, game?.state?.turnDeadlineAt, turnBudgetMs]);
 
   useEffect(() => {
     const a = Number(game?.state?.teamATricks ?? 0);
@@ -594,22 +602,6 @@ export default function PlayPage() {
           }}
         />
         <div className="pointer-events-none absolute inset-6 rounded-[30px] border border-white/10" />
-        <div
-          className="pointer-events-none absolute left-1/2 top-1/2 z-0 -translate-x-1/2 -translate-y-1/2 text-center opacity-25 transition-transform duration-150"
-          style={{
-            transform: `translate3d(calc(-50% + ${parallax.x * 6}px), calc(-50% + ${parallax.y * 4}px), 0)`,
-          }}
-        >
-          <Image
-            src="/cardarena-logo.png"
-            alt="CardArena"
-            width={560}
-            height={180}
-            className="mx-auto object-contain"
-          />
-          <p className="mt-2 text-xs tracking-[0.6em] text-emerald-200">COMPETE</p>
-        </div>
-
         {spadeBreakFx && (
           <div className="pointer-events-none absolute inset-0 z-30 animate-[fadeOut_1s_ease_forwards]">
             <div className="absolute left-1/2 top-1/2 h-64 w-64 -translate-x-1/2 -translate-y-1/2 rounded-full border border-cyan-300/60 bg-cyan-200/10 blur-[1px]" />
@@ -649,7 +641,7 @@ export default function PlayPage() {
           <div className="relative z-10 mt-3 rounded-xl border border-amber-300/35 bg-black/35 p-2 text-xs">
             <div className="mb-1 flex items-center justify-between">
               <p className="font-semibold text-amber-200">
-                ⏳ Turn Timer: Seat {game?.state?.currentTurnSeat ?? "-"} ({turnRemainingSec}s)
+                Turn Timer: Seat {game?.state?.currentTurnSeat ?? "-"} ({turnRemainingSec}s)
               </p>
               <p className={myTurn ? "text-emerald-300" : "text-white/70"}>{myTurn ? "Your turn" : "Waiting"}</p>
             </div>
@@ -663,6 +655,22 @@ export default function PlayPage() {
         )}
 
         <div className="relative mt-6 h-[380px] rounded-2xl border border-white/10 bg-black/20 p-4">
+          <div
+            className="pointer-events-none absolute left-1/2 top-1/2 z-0 -translate-x-1/2 -translate-y-1/2 text-center opacity-25 transition-transform duration-150"
+            style={{
+              transform: `translate3d(calc(-50% + ${parallax.x * 4}px), calc(-50% + ${parallax.y * 3}px), 0)`,
+            }}
+          >
+            <Image
+              src="/cardarena-logo.png"
+              alt="CardArena"
+              width={640}
+              height={220}
+              className="mx-auto object-contain"
+            />
+            <p className="mt-2 text-xs tracking-[0.6em] text-emerald-200">COMPETE</p>
+          </div>
+
           <div className="absolute left-1/2 top-3 -translate-x-1/2 text-center">
             <p className="text-[11px] text-white/70">Seat {topSeat}{topSeat === mySeat ? " (You)" : ""}</p>
             <p className="text-[11px] font-semibold text-amber-200">
@@ -792,7 +800,7 @@ export default function PlayPage() {
           {phase === "PLAYING" ? (
             <>
               <p className="mb-2 text-sm text-white/80">
-                {myTurn ? "Your turn: double tap + slide to center, or press/hold then release to slam." : "Waiting for current player..."}
+                {myTurn ? "Your turn: tap a card to play. You can still drag to center or hold to slam." : "Waiting for current player..."}
               </p>
               <div className="flex flex-wrap gap-2 pb-2">
                 {myHand.map((card) => {
@@ -802,6 +810,11 @@ export default function PlayPage() {
                   return (
                     <button
                       key={id}
+                      onClick={() => {
+                        if (myTurn && phase === "PLAYING" && !submitting) {
+                          void playCardAction(card, false);
+                        }
+                      }}
                       onPointerDown={(e) => onCardPointerDown(e, card)}
                       onPointerMove={(e) => onCardPointerMove(e, card)}
                       onPointerUp={(e) => onCardPointerUp(e, card)}

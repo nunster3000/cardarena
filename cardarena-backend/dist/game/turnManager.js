@@ -40,9 +40,30 @@ const db_1 = require("../db");
 const play_1 = require("./play");
 const bot_1 = require("./bot");
 const logger_1 = require("../utils/logger");
+const emitGameState_1 = require("./emitGameState");
 const turnTimers = new Map();
 const TURN_TIMEOUT_MS = 8000; // 8 seconds per move
 const DEFAULT_TIMEOUT_BID = 2;
+async function syncTurnDeadline(gameId, deadlineAt) {
+    const game = await db_1.prisma.game.findUnique({
+        where: { id: gameId },
+        select: { state: true },
+    });
+    if (!game?.state || typeof game.state !== "object")
+        return;
+    const nextState = {
+        ...game.state,
+        turnDeadlineAt: deadlineAt,
+        turnTimeoutMs: TURN_TIMEOUT_MS,
+    };
+    await db_1.prisma.game.update({
+        where: { id: gameId },
+        data: {
+            state: nextState,
+        },
+    });
+    await (0, emitGameState_1.emitGameStateForGame)(gameId, nextState);
+}
 function chooseTimeoutCard(state, seat) {
     const hand = Array.isArray(state?.hands?.[seat])
         ? state.hands[seat]
@@ -73,8 +94,13 @@ function chooseTimeoutCard(state, seat) {
 }
 function startTurnTimer(gameId) {
     clearTurnTimer(gameId);
+    const deadlineAt = Date.now() + TURN_TIMEOUT_MS;
     const timer = setTimeout(async () => {
         try {
+            const activeTimer = turnTimers.get(gameId);
+            if (!activeTimer || activeTimer.handle !== timer) {
+                return;
+            }
             const game = await db_1.prisma.game.findUnique({
                 where: { id: gameId },
             });
@@ -108,12 +134,18 @@ function startTurnTimer(gameId) {
             logger_1.logger.error({ err, gameId }, "Turn timeout handler failed");
         }
     }, TURN_TIMEOUT_MS);
-    turnTimers.set(gameId, timer);
+    turnTimers.set(gameId, { handle: timer });
+    void syncTurnDeadline(gameId, deadlineAt).catch((err) => {
+        logger_1.logger.error({ err, gameId }, "Failed to sync turn deadline");
+    });
 }
 function clearTurnTimer(gameId) {
     const existing = turnTimers.get(gameId);
     if (existing) {
-        clearTimeout(existing);
+        clearTimeout(existing.handle);
         turnTimers.delete(gameId);
     }
+    void syncTurnDeadline(gameId, null).catch((err) => {
+        logger_1.logger.error({ err, gameId }, "Failed to clear turn deadline");
+    });
 }
