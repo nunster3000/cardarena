@@ -1003,22 +1003,38 @@ export default function DashboardPage() {
           </div>
         </section>
 
-        <section className="mt-4 grid gap-4 lg:grid-cols-3">
-          <div className="rounded-2xl border border-white/15 bg-black/35 p-4 lg:col-span-2">
-            <h2 className="text-lg font-bold">Tournament Tables</h2>
-            <p className="text-xs text-white/70">Pick a table and queue into a live match.</p>
-            <div className="mt-3 rounded-xl border border-cyan-300/30 bg-white/5 p-3">
+        <section className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1.7fr)_minmax(320px,0.9fr)]">
+          <div className="rounded-[28px] border border-cyan-300/15 bg-[radial-gradient(circle_at_top_left,rgba(34,211,238,0.18),transparent_30%),radial-gradient(circle_at_top_right,rgba(217,70,239,0.16),transparent_24%),linear-gradient(180deg,rgba(15,23,42,0.96),rgba(8,15,34,0.96))] p-4 shadow-[0_20px_60px_rgba(8,15,34,0.35)]">
+            <div className="flex flex-wrap items-end justify-between gap-3">
+              <div>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.32em] text-cyan-200/70">Arena Select</p>
+                <h2 className="mt-1 text-2xl font-black tracking-tight">Choose Your Table</h2>
+                <p className="mt-1 text-sm text-white/70">Turn the lobby into bold, game-like mode cards with one featured lane and fast-tap queue options.</p>
+              </div>
+              <div className="flex flex-wrap gap-2 text-xs">
+                <div className="rounded-full border border-emerald-300/30 bg-emerald-400/10 px-3 py-1 text-emerald-200">
+                  {onlinePlayers} players online
+                </div>
+                <div className="rounded-full border border-cyan-300/30 bg-cyan-400/10 px-3 py-1 text-cyan-100">
+                  {party ? `${party.members.length}/4 in party` : "Party queue ready"}
+                </div>
+              </div>
+            </div>
+            <div className="mt-3 rounded-[24px] border border-cyan-300/25 bg-[linear-gradient(180deg,rgba(255,255,255,0.06),rgba(255,255,255,0.03))] p-3 backdrop-blur-sm">
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <h3 className="text-sm font-semibold">Party Lobby</h3>
+                <div>
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.26em] text-cyan-200/65">Squad Lobby</p>
+                  <h3 className="mt-1 text-sm font-semibold">Party Controls</h3>
+                </div>
                 {!party ? (
                   <button
                     onClick={createParty}
-                    className="rounded-lg bg-[linear-gradient(110deg,#22d3ee,#60a5fa,#34d399)] bg-[length:200%_200%] px-3 py-1 text-xs font-semibold text-slate-950 transition-all duration-300 hover:bg-[position:100%_0%]"
+                    className="rounded-xl bg-[linear-gradient(110deg,#22d3ee,#60a5fa,#34d399)] bg-[length:200%_200%] px-3 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-950 transition-all duration-300 hover:bg-[position:100%_0%]"
                   >
                     Create Party
                   </button>
                 ) : (
-                  <button onClick={leaveParty} className="rounded-lg bg-white/15 px-3 py-1 text-xs hover:bg-white/25">
+                  <button onClick={leaveParty} className="rounded-xl bg-white/15 px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em] hover:bg-white/25">
                     {party.isLeader && party.members.length > 1 ? "Disband/Leave" : "Leave Party"}
                   </button>
                 )}
@@ -1127,29 +1143,41 @@ export default function DashboardPage() {
                 </div>
               )}
             </div>
-            <div className="mt-3 grid gap-3 md:grid-cols-2">
-              <div className="rounded-xl border border-emerald-300/30 bg-white/5 p-4">
-                <p className="text-xs font-semibold uppercase tracking-wide text-emerald-300">Play For Fun!</p>
-                <p className="mt-1 text-base font-bold">Free Table</p>
+            <div className="mt-4 grid gap-3 md:grid-cols-2">
+              <div className="rounded-[26px] border border-emerald-300/35 bg-[radial-gradient(circle_at_20%_20%,rgba(16,185,129,0.24),transparent_28%),radial-gradient(circle_at_80%_0%,rgba(56,189,248,0.2),transparent_24%),linear-gradient(135deg,rgba(6,78,59,0.72),rgba(14,116,144,0.42),rgba(15,23,42,0.92))] p-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.12),0_20px_45px_rgba(5,46,22,0.3)] md:col-span-2">
+                <div className="flex flex-wrap items-start justify-between gap-4">
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-[0.3em] text-emerald-200">Featured Mode</p>
+                    <p className="mt-2 text-3xl font-black leading-none sm:text-4xl">Free Table</p>
+                    <p className="mt-2 max-w-xl text-sm text-emerald-50/80">
+                      Make this the main destination on the screen, closer to the Spades app’s big play card.
+                    </p>
+                  </div>
+                  <div className="rounded-3xl border border-white/15 bg-slate-950/25 px-4 py-3 text-right backdrop-blur-sm">
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/55">Live Lobby</p>
+                    <p className="mt-1 text-3xl font-black text-white">{onlinePlayers}</p>
+                    <p className="text-xs text-white/65">players online</p>
+                  </div>
+                </div>
                 <p className="mt-1 text-xs text-white/70">
                   Active/Waiting players: <span className="font-semibold text-emerald-300">{onlinePlayers}</span>
                 </p>
-                <div className="mt-2 rounded-lg border border-white/15 bg-white/5 p-2 text-xs text-white/75">
-                  <p>Queue mode:</p>
-                  <div className="mt-2 flex flex-wrap gap-2">
+                <div className="mt-4 rounded-[22px] border border-white/15 bg-slate-950/25 p-3 text-xs text-white/75 backdrop-blur-sm">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/55">Queue Mode</p>
+                  <div className="mt-3 flex flex-wrap gap-2">
                     {(["RANDOMS", "FRIENDS", "BOTS"] as QueueMode[]).map((mode) => (
                       <button
                         key={mode}
                         onClick={() => setFreeQueueMode(mode)}
-                        className={`rounded-md px-2 py-1 ${freeQueueMode === mode ? "bg-emerald-500/35 text-white" : "bg-white/10 text-white/80 hover:bg-white/20"}`}
+                        className={`rounded-xl px-3 py-2 text-sm font-semibold transition ${freeQueueMode === mode ? "border border-white/30 bg-white/20 text-white shadow-[0_0_24px_rgba(255,255,255,0.08)]" : "border border-white/10 bg-white/10 text-white/80 hover:bg-white/15"}`}
                       >
                         {mode === "RANDOMS" ? "Randoms" : mode === "FRIENDS" ? "Invite Friends" : "Bots"}
                       </button>
                     ))}
                   </div>
                 </div>
-                <div className="mt-3 flex items-center justify-between">
-                  <p className="text-xs text-white/70">
+                <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+                  <p className="text-sm text-white/80">
                     {queueingTableId === "free"
                       ? `Searching... ${queueSeconds}s`
                       : "Bots auto-fill open seats after 15s."}
@@ -1163,7 +1191,7 @@ export default function DashboardPage() {
                         }
                         cancelQueue();
                       }}
-                      className="rounded-lg border border-white/20 bg-white/10 px-3 py-2 text-xs font-semibold text-white hover:bg-white/20"
+                      className="rounded-2xl border border-white/20 bg-slate-950/35 px-5 py-3 text-sm font-bold uppercase tracking-[0.12em] text-white hover:bg-white/15"
                     >
                       Cancel
                     </button>
@@ -1189,9 +1217,9 @@ export default function DashboardPage() {
                         }
                         startFreeQueue();
                       }}
-                      className="rounded-lg bg-[linear-gradient(110deg,#22d3ee,#60a5fa,#34d399)] bg-[length:200%_200%] px-4 py-2 text-sm font-semibold text-slate-950 transition-all duration-300 hover:scale-[1.02] hover:bg-[position:100%_0%] disabled:cursor-not-allowed disabled:bg-none disabled:bg-slate-500/50 disabled:text-slate-200"
+                      className="rounded-2xl bg-[linear-gradient(180deg,#9efc4f,#58d61c_55%,#2d9f10)] px-7 py-4 text-lg font-black uppercase tracking-[0.18em] text-slate-950 shadow-[0_10px_30px_rgba(124,252,0,0.35)] transition hover:scale-[1.02] disabled:cursor-not-allowed disabled:bg-slate-500/50 disabled:text-slate-200 disabled:shadow-none"
                     >
-                      Join Free Table
+                      Play Now
                     </button>
                   )}
                 </div>
@@ -1206,49 +1234,58 @@ export default function DashboardPage() {
                 )}
               </div>
 
-              {paidTables.map((t) => (
-                <div key={t.key} className="rounded-xl border border-white/15 bg-white/5 p-4">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-white/70">Competitive</p>
-                  <p className="mt-1 text-base font-bold">{t.label}</p>
-                  <p className="mt-1 text-xs text-white/70">
-                    Active/Waiting players: <span className="font-semibold text-emerald-300">{onlinePlayers}</span>
-                  </p>
-                  <p className="mt-1 text-xs text-white/70">Status: {t.status}</p>
-                  <button
-                    onClick={() => t.tournamentId && joinTournament(t.tournamentId)}
-                    disabled={!t.canJoin}
-                    className="mt-3 w-full rounded-lg bg-[linear-gradient(110deg,#22d3ee,#60a5fa,#34d399)] bg-[length:200%_200%] px-3 py-2 text-sm font-semibold text-slate-950 transition-all duration-300 hover:scale-[1.01] hover:bg-[position:100%_0%] disabled:cursor-not-allowed disabled:bg-none disabled:bg-slate-500/50 disabled:text-slate-200"
+              {paidTables.map((t, index) => {
+                const themes = [
+                  "border-fuchsia-300/30 bg-[radial-gradient(circle_at_25%_15%,rgba(244,114,182,0.28),transparent_24%),linear-gradient(180deg,rgba(88,28,135,0.88),rgba(30,27,75,0.95))]",
+                  "border-rose-300/30 bg-[radial-gradient(circle_at_30%_15%,rgba(251,191,36,0.28),transparent_22%),linear-gradient(180deg,rgba(153,27,27,0.88),rgba(69,10,10,0.95))]",
+                  "border-amber-200/30 bg-[radial-gradient(circle_at_30%_15%,rgba(253,224,71,0.26),transparent_22%),linear-gradient(180deg,rgba(120,53,15,0.9),rgba(41,37,36,0.96))]",
+                ];
+                return (
+                  <div
+                    key={t.key}
+                    className={`rounded-[26px] border p-4 shadow-[0_18px_40px_rgba(2,6,23,0.35)] ${themes[index % themes.length]}`}
                   >
-                    {t.canJoin ? "Join Table" : t.disabledReason}
-                  </button>
-                </div>
-              ))}
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.28em] text-white/60">Competitive</p>
+                    <p className="mt-2 text-3xl font-black text-white">{t.label}</p>
+                    <p className="mt-3 text-sm text-white/80">{onlinePlayers} players watching this lane</p>
+                    <p className="mt-1 text-xs uppercase tracking-[0.22em] text-white/55">{t.status.replaceAll("_", " ")}</p>
+                    <button
+                      onClick={() => t.tournamentId && joinTournament(t.tournamentId)}
+                      disabled={!t.canJoin}
+                      className="mt-8 w-full rounded-2xl border border-white/20 bg-black/30 px-4 py-3 text-base font-black uppercase tracking-[0.16em] text-white backdrop-blur-sm transition hover:bg-black/40 disabled:cursor-not-allowed disabled:border-white/10 disabled:bg-white/10 disabled:text-white/55"
+                    >
+                      {t.canJoin ? "Enter" : t.disabledReason}
+                    </button>
+                  </div>
+                );
+              })}
             </div>
           </div>
 
-          <div className="rounded-2xl border border-white/15 bg-black/35 p-4">
-            <h2 className="text-lg font-bold">Find Friends</h2>
+          <div className="rounded-[28px] border border-white/15 bg-[linear-gradient(180deg,rgba(15,23,42,0.95),rgba(11,18,32,0.95))] p-4 shadow-[0_18px_40px_rgba(2,6,23,0.28)]">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.28em] text-cyan-200/65">Social</p>
+            <h2 className="mt-1 text-lg font-black">Find Friends</h2>
             <div className="mt-3 flex gap-2">
               <input
                 value={friendQuery}
                 onChange={(e) => setFriendQuery(e.target.value)}
-                className="w-full rounded-lg bg-white/10 px-3 py-2 text-sm ring-1 ring-white/20 outline-none"
+                className="w-full rounded-xl bg-white/10 px-3 py-2.5 text-sm ring-1 ring-white/20 outline-none"
                 placeholder="Search by username"
               />
-              <button onClick={searchFriends} className="rounded-lg bg-white/15 px-3 py-2 text-sm">
+              <button onClick={searchFriends} className="rounded-xl bg-white/15 px-4 py-2.5 text-sm font-semibold hover:bg-white/20">
                 Search
               </button>
             </div>
             <div className="mt-3 max-h-72 space-y-2 overflow-auto">
               {friendSearch.map((u) => (
-                <div key={u.id} className="flex items-center justify-between rounded-lg bg-white/10 p-2 text-sm">
+                <div key={u.id} className="flex items-center justify-between rounded-2xl border border-white/10 bg-white/5 p-3 text-sm">
                   <div className="flex items-center gap-2">
-                    <span className={`inline-block h-2 w-2 rounded-full ${u.isOnline ? "bg-emerald-400" : "bg-white/40"}`} />
+                    <span className={`inline-block h-2.5 w-2.5 rounded-full ${u.isOnline ? "bg-emerald-400" : "bg-white/40"}`} />
                     <span>{u.username}</span>
                   </div>
                   <button
                     onClick={() => friendAction("/api/v1/users/friends/request", "POST", { friendId: u.id })}
-                    className="rounded bg-emerald-500/30 px-2 py-1 text-xs"
+                    className="rounded-lg bg-emerald-500/25 px-3 py-1.5 text-xs font-semibold text-emerald-100 hover:bg-emerald-500/35"
                   >
                     Add
                   </button>

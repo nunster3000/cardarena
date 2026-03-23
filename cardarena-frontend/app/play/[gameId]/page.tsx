@@ -569,8 +569,8 @@ export default function PlayPage() {
   }
 
   return (
-    <main className={`${space.className} min-h-screen overflow-hidden bg-[radial-gradient(circle_at_20%_20%,#123f4e,#0b1f32_45%,#050b15)] px-4 py-4 text-white`}>
-      <div className="mx-auto flex max-w-7xl items-center justify-between gap-3 rounded-2xl border border-white/15 bg-black/35 px-4 py-3 backdrop-blur-xl">
+    <main className={`${space.className} min-h-[100dvh] overflow-hidden bg-[radial-gradient(circle_at_20%_20%,#123f4e,#0b1f32_45%,#050b15)] px-3 py-3 text-white md:px-4 md:py-4`}>
+      <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-3 rounded-2xl border border-white/15 bg-black/35 px-4 py-3 backdrop-blur-xl">
         <div>
           <p className="text-xs text-white/70">Game ID: {gameId}</p>
           <h1 className="text-lg font-bold">CardArena Table</h1>
@@ -579,7 +579,7 @@ export default function PlayPage() {
             {socketConnected ? "Realtime Connected" : "Realtime Reconnecting"}
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <button
             onClick={() => setSfxEnabled((prev) => !prev)}
             className={`rounded px-2 py-1 text-xs ${sfxEnabled ? "bg-emerald-500/25 hover:bg-emerald-500/35" : "bg-white/10 hover:bg-white/20"}`}
@@ -627,7 +627,7 @@ export default function PlayPage() {
           setParallax({ x: 0, y: 0 });
           setSpotlight((prev) => ({ ...prev, active: false }));
         }}
-        className={`relative mx-auto mt-4 max-w-7xl rounded-[36px] border border-cyan-300/20 bg-[radial-gradient(circle_at_50%_50%,#0c5f59,#063244_55%,#051022)] p-5 shadow-[0_20px_80px_rgba(0,0,0,0.55)] ${tableShake ? "animate-[tableShake_360ms_ease]" : ""}`}
+        className={`relative mx-auto mt-4 min-h-[calc(100dvh-8.5rem)] max-w-7xl overflow-hidden rounded-[36px] border border-cyan-300/20 bg-[radial-gradient(circle_at_50%_50%,#0c5f59,#063244_55%,#051022)] px-3 pb-[calc(env(safe-area-inset-bottom)+1rem)] pt-3 shadow-[0_20px_80px_rgba(0,0,0,0.55)] md:px-5 md:pb-[calc(env(safe-area-inset-bottom)+1.25rem)] md:pt-5 ${tableShake ? "animate-[tableShake_360ms_ease]" : ""}`}
       >
         <div
           className="pointer-events-none absolute inset-0 rounded-[36px] transition-opacity duration-300"
@@ -651,45 +651,44 @@ export default function PlayPage() {
           </div>
         )}
 
-        <div className="relative z-10 grid grid-cols-3 gap-3 text-xs">
-          <div className="rounded-xl border border-white/15 bg-black/30 p-3">
-            <p>Status: <span className="font-semibold">{game?.status || "..."}</span></p>
-            <p>Phase: <span className="font-semibold">{phase}</span></p>
-            <p>Your Seat: <span className="font-semibold">{mySeat || "-"}</span></p>
-            <p>Turn: <span className={myTurn ? "font-semibold text-emerald-300" : "font-semibold"}>{game?.state?.currentTurnSeat ?? "-"}</span></p>
-          </div>
-          <div className="rounded-xl border border-white/15 bg-black/30 p-3">
-            <p>Tricks</p>
-            <p className="text-emerald-300">Team A: {game?.state?.teamATricks ?? 0}</p>
-            <p className="text-blue-300">Team B: {game?.state?.teamBTricks ?? 0}</p>
-            <p>Spades Broken: {game?.state?.spadesBroken ? "Yes" : "No"}</p>
-          </div>
-          <div className="rounded-xl border border-white/15 bg-black/30 p-3">
-            <p>Scores</p>
-            <p className="text-emerald-300">Team A: {game?.state?.teamAScore ?? 0}</p>
-            <p className="text-blue-300">Team B: {game?.state?.teamBScore ?? 0}</p>
-            <p>Completed Tricks: {game?.state?.completedTricks ?? 0}/13</p>
-          </div>
-        </div>
-
-        {showTurnTimer && (
-          <div className="relative z-10 mt-3 rounded-xl border border-amber-300/35 bg-black/35 p-2 text-xs">
-            <div className="mb-1 flex items-center justify-between">
-              <p className="font-semibold text-amber-200">
-                Turn Timer: Seat {game?.state?.currentTurnSeat ?? "-"} ({turnRemainingSec}s)
-              </p>
-              <p className={myTurn ? "text-emerald-300" : "text-white/70"}>{myTurn ? "Your turn" : "Waiting"}</p>
+        <div className="relative z-10 rounded-[30px] border border-white/10 bg-black/15 px-3 pb-56 pt-20 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] md:px-5 md:pb-72 md:pt-24">
+          <div className="absolute inset-x-3 top-3 z-20 space-y-2 md:inset-x-5 md:top-4">
+            <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-white/15 bg-black/35 px-3 py-2 text-[11px] backdrop-blur-xl md:px-4">
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-white/78">
+                <span>Status: <span className="font-semibold text-white">{game?.status || "..."}</span></span>
+                <span>Phase: <span className="font-semibold text-white">{phase}</span></span>
+                <span>Your Seat: <span className="font-semibold text-white">{mySeat || "-"}</span></span>
+                <span>Turn: <span className={myTurn ? "font-semibold text-emerald-300" : "font-semibold text-white"}>{game?.state?.currentTurnSeat ?? "-"}</span></span>
+              </div>
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-white/72">
+                <span className="text-emerald-300">A Tricks {game?.state?.teamATricks ?? 0}</span>
+                <span className="text-blue-300">B Tricks {game?.state?.teamBTricks ?? 0}</span>
+                <span className="text-emerald-300">A Score {game?.state?.teamAScore ?? 0}</span>
+                <span className="text-blue-300">B Score {game?.state?.teamBScore ?? 0}</span>
+                <span>Books {game?.state?.completedTricks ?? 0}/13</span>
+                <span>{game?.state?.spadesBroken ? "Spades broken" : "Spades unbroken"}</span>
+              </div>
             </div>
-            <div className="h-2 overflow-hidden rounded-full bg-white/15">
-              <div
-                className={`h-full transition-all duration-100 ${turnProgressPct <= 25 ? "bg-rose-400" : "bg-amber-300"}`}
-                style={{ width: `${turnProgressPct}%` }}
-              />
-            </div>
-          </div>
-        )}
 
-        <div className="relative mt-6 h-[380px] rounded-2xl border border-white/10 bg-black/20 p-4">
+            {showTurnTimer && (
+              <div className="rounded-2xl border border-amber-300/35 bg-black/35 px-3 py-2 text-xs backdrop-blur-xl md:px-4">
+                <div className="mb-1 flex items-center justify-between gap-3">
+                  <p className="font-semibold text-amber-200">
+                    Turn Timer: Seat {game?.state?.currentTurnSeat ?? "-"} ({turnRemainingSec}s)
+                  </p>
+                  <p className={myTurn ? "text-emerald-300" : "text-white/70"}>{myTurn ? "Your turn" : "Waiting"}</p>
+                </div>
+                <div className="h-2 overflow-hidden rounded-full bg-white/15">
+                  <div
+                    className={`h-full transition-all duration-100 ${turnProgressPct <= 25 ? "bg-rose-400" : "bg-amber-300"}`}
+                    style={{ width: `${turnProgressPct}%` }}
+                  />
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div className="relative min-h-[420px] pt-16 md:min-h-[520px] md:pt-20">
           <div
             className="pointer-events-none absolute left-1/2 top-1/2 z-0 -translate-x-1/2 -translate-y-1/2 text-center opacity-25 transition-transform duration-150"
             style={{
@@ -706,42 +705,32 @@ export default function PlayPage() {
             <p className="mt-2 text-xs tracking-[0.6em] text-emerald-200">COMPETE</p>
           </div>
 
-          <div className="absolute left-1/2 top-3 -translate-x-1/2 text-center">
+          <div className="absolute left-1/2 top-1 -translate-x-1/2 text-center md:top-2">
             <p className="text-[11px] text-white/70">Seat {topSeat}{topSeat === mySeat ? " (You)" : ""}</p>
             <p className="text-[11px] font-semibold text-amber-200">
               Bid: {bidForSeat(game?.state, topSeat) ?? "-"}
             </p>
-            <div className={`relative mx-auto mt-1 h-10 w-16 overflow-hidden rounded-md ${backClass[deckBack]} ring-1 ring-white/20`}>
+            <div className={`relative mx-auto mt-1 h-10 w-16 overflow-hidden rounded-md ${backClass[deckBack]} ring-1 ring-white/20 md:h-11 md:w-16`}>
               <Image src="/cardarena-logo.png" alt="CardArena card back" fill sizes="64px" className="object-contain opacity-35" />
             </div>
             <p className="mt-1 text-[10px] text-white/60">{topCount} cards</p>
           </div>
-          <div className="absolute right-3 top-1/2 -translate-y-1/2 text-center">
+          <div className="absolute right-0 top-1/2 -translate-y-1/2 text-center md:right-2">
             <p className="text-[11px] text-white/70">Seat {rightSeat}{rightSeat === mySeat ? " (You)" : ""}</p>
             <p className="text-[11px] font-semibold text-amber-200">
               Bid: {bidForSeat(game?.state, rightSeat) ?? "-"}
             </p>
-            <div className={`relative mx-auto mt-1 h-16 w-10 overflow-hidden rounded-md ${backClass[deckBack]} ring-1 ring-white/20`}>
+            <div className={`relative mx-auto mt-1 h-16 w-10 overflow-hidden rounded-md ${backClass[deckBack]} ring-1 ring-white/20 md:h-20 md:w-12`}>
               <Image src="/cardarena-logo.png" alt="CardArena card back" fill sizes="40px" className="object-contain opacity-35" />
             </div>
             <p className="mt-1 text-[10px] text-white/60">{rightCount} cards</p>
           </div>
-          <div className="absolute bottom-3 left-1/2 -translate-x-1/2 text-center">
-            <p className="text-[11px] text-white/70">Seat {bottomSeat}{bottomSeat === mySeat ? " (You)" : ""}</p>
-            <p className="text-[11px] font-semibold text-amber-200">
-              Bid: {bidForSeat(game?.state, bottomSeat) ?? "-"}
-            </p>
-            <div className={`relative mx-auto mt-1 h-10 w-16 overflow-hidden rounded-md ${backClass[deckBack]} ring-1 ring-white/20`}>
-              <Image src="/cardarena-logo.png" alt="CardArena card back" fill sizes="64px" className="object-contain opacity-35" />
-            </div>
-            <p className="mt-1 text-[10px] text-white/60">{bottomCount} cards</p>
-          </div>
-          <div className="absolute left-3 top-1/2 -translate-y-1/2 text-center">
+          <div className="absolute left-0 top-1/2 -translate-y-1/2 text-center md:left-2">
             <p className="text-[11px] text-white/70">Seat {leftSeat}{leftSeat === mySeat ? " (You)" : ""}</p>
             <p className="text-[11px] font-semibold text-amber-200">
               Bid: {bidForSeat(game?.state, leftSeat) ?? "-"}
             </p>
-            <div className={`relative mx-auto mt-1 h-16 w-10 overflow-hidden rounded-md ${backClass[deckBack]} ring-1 ring-white/20`}>
+            <div className={`relative mx-auto mt-1 h-16 w-10 overflow-hidden rounded-md ${backClass[deckBack]} ring-1 ring-white/20 md:h-20 md:w-12`}>
               <Image src="/cardarena-logo.png" alt="CardArena card back" fill sizes="40px" className="object-contain opacity-35" />
             </div>
             <p className="mt-1 text-[10px] text-white/60">{leftCount} cards</p>
@@ -749,12 +738,12 @@ export default function PlayPage() {
 
           <div
             ref={playZoneRef}
-            className="absolute left-1/2 top-1/2 z-10 h-56 w-56 -translate-x-1/2 -translate-y-1/2 transition-transform duration-100"
+            className="absolute left-1/2 top-1/2 z-10 h-48 w-48 -translate-x-1/2 -translate-y-1/2 transition-transform duration-100 md:h-60 md:w-60"
             style={{
               transform: `translate(calc(-50% + ${parallax.x * 3}px), calc(-50% + ${parallax.y * 2}px))`,
             }}
           >
-            <div className="flex h-full w-full flex-wrap items-center justify-center gap-2 px-2">
+            <div className="flex h-full w-full flex-wrap items-center justify-center gap-2 rounded-full border border-white/8 bg-black/10 px-2 backdrop-blur-[2px]">
               {(game?.state?.trick || []).map((c, idx) => (
                 <div key={`${c.seat}-${idx}`} className={`h-16 w-11 rounded-md bg-gradient-to-b ${themeClass[deckTheme]} p-1 text-center shadow-md`}>
                   <p className={`text-[10px] ${suitColor(c.suit)}`}>{rankLabel(c.rank)}</p>
@@ -777,10 +766,10 @@ export default function PlayPage() {
 
           {phase === "PLAYING" && (
             <>
-              <div className="absolute left-3 top-3 z-20 rounded-lg border border-white/20 bg-black/45 px-2 py-1 text-[11px] shadow-lg">
+              <div className="absolute left-2 top-[5.25rem] z-20 rounded-lg border border-white/20 bg-black/45 px-2 py-1 text-[11px] shadow-lg md:left-3 md:top-[6rem]">
                 <p className="text-emerald-300">Team A Books: {game?.state?.teamATricks ?? 0}</p>
               </div>
-              <div className="absolute right-3 top-3 z-20 rounded-lg border border-white/20 bg-black/45 px-2 py-1 text-[11px] shadow-lg">
+              <div className="absolute right-2 top-[5.25rem] z-20 rounded-lg border border-white/20 bg-black/45 px-2 py-1 text-[11px] shadow-lg md:right-3 md:top-[6rem]">
                 <p className="text-blue-300">Team B Books: {game?.state?.teamBTricks ?? 0}</p>
               </div>
             </>
@@ -794,94 +783,124 @@ export default function PlayPage() {
               }`}
             />
           ))}
-        </div>
+          </div>
 
-        <div className="mt-4 rounded-2xl border border-white/10 bg-black/25 p-3">
-          {phase === "WAITING" || phase === "DEALING" ? (
-            <div className="flex items-center justify-between gap-3">
-              <p className="text-sm text-white/80">Game is waiting to begin.</p>
-              <button disabled={submitting} onClick={startGameAction} className="rounded-lg bg-[linear-gradient(110deg,#22d3ee,#60a5fa,#34d399)] bg-[length:200%_200%] px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-[position:100%_0%] disabled:opacity-70">
-                Start Game
-              </button>
-            </div>
-          ) : null}
+          <div className="absolute inset-x-2 bottom-2 z-20 md:inset-x-4 md:bottom-4">
+            <div className="rounded-[28px] border border-white/15 bg-[linear-gradient(180deg,rgba(3,7,18,0.18),rgba(3,7,18,0.78)_22%,rgba(3,7,18,0.96))] px-3 pb-[calc(env(safe-area-inset-bottom)+0.25rem)] pt-6 shadow-[0_-14px_36px_rgba(0,0,0,0.4)] backdrop-blur-xl md:px-5 md:pt-7">
+              <div className="absolute left-1/2 top-0 h-16 w-[72%] -translate-x-1/2 -translate-y-1/2 rounded-full bg-[radial-gradient(circle,rgba(16,185,129,0.24),transparent_70%)] blur-2xl" />
 
-          {phase === "BIDDING" ? (
-            <div className="space-y-2">
-              <div className="flex flex-wrap items-center gap-2">
-                <p className="text-sm text-white/80">Bidding phase {myTurn ? "(your turn)" : "(waiting)"}</p>
+              <div className="mb-3 flex flex-wrap items-end justify-between gap-3">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.28em] text-cyan-200/70">Your Seat</p>
+                  <h2 className="mt-1 text-lg font-bold text-white">Seat {bottomSeat}{bottomSeat === mySeat ? " (You)" : ""}</h2>
+                  <p className="text-sm text-white/72">
+                    Bid: {bidForSeat(game?.state, bottomSeat) ?? "-"} | {bottomCount} cards
+                  </p>
+                </div>
+                <p className="max-w-lg text-sm text-white/78">
+                  {phase === "PLAYING"
+                    ? myTurn
+                      ? "Your turn: tap a card to play, double tap and slide to center, or hold to slam."
+                      : "Waiting for the current player. Your hand stays docked until it is your turn."
+                    : phase === "BIDDING"
+                      ? myTurn
+                        ? "Choose your bid from the tray below. Your hand stays visible for quick reading."
+                        : "Bidding is in progress. Review your hand while you wait."
+                      : "The table is set. Start the game when everyone is ready."}
+                </p>
               </div>
-              <div className="flex flex-wrap gap-2">
-                {myHand.map((card) => (
-                  <div key={cardId(card)} className={`h-20 w-14 rounded-md bg-gradient-to-b ${themeClass[deckTheme]} p-1 text-center shadow-md ring-1 ring-black/20`}>
-                    <p className={`text-[11px] ${suitColor(card.suit)}`}>{rankLabel(card.rank)}</p>
-                    <p className={`text-xl leading-6 ${suitColor(card.suit)}`}>{suitSymbol[card.suit]}</p>
-                  </div>
-                ))}
-              </div>
-              {myTurn && (
-                <div className="mt-2 rounded-xl border border-white/20 bg-black/55 p-3">
-                  <p className="mb-2 text-lg font-semibold">Choose a bid:</p>
-                  <div className="grid grid-cols-7 gap-2">
-                    {Array.from({ length: 14 }, (_, i) => i).map((n) => (
-                      <button
-                        key={n}
-                        onClick={() => {
-                          setBidValue(String(n));
-                          void submitBidAction();
-                        }}
-                        disabled={submitting}
-                        className="rounded-lg border border-white/40 bg-white/10 px-3 py-2 text-lg font-semibold hover:bg-white/20 disabled:opacity-60"
-                      >
-                        {n}
-                      </button>
+
+              {phase === "WAITING" || phase === "DEALING" ? (
+                <div className="flex items-center justify-between gap-3 rounded-2xl border border-white/10 bg-black/25 px-4 py-3">
+                  <p className="text-sm text-white/80">Game is waiting to begin.</p>
+                  <button disabled={submitting} onClick={startGameAction} className="rounded-xl bg-[linear-gradient(110deg,#22d3ee,#60a5fa,#34d399)] bg-[length:200%_200%] px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-[position:100%_0%] disabled:opacity-70">
+                    Start Game
+                  </button>
+                </div>
+              ) : null}
+
+              {phase === "BIDDING" ? (
+                <div className="space-y-3">
+                  <div className="flex gap-2 overflow-x-auto pb-1">
+                    {myHand.map((card) => (
+                      <div key={cardId(card)} className={`h-20 min-w-14 rounded-md bg-gradient-to-b ${themeClass[deckTheme]} p-1 text-center shadow-md ring-1 ring-black/20`}>
+                        <p className={`text-[11px] ${suitColor(card.suit)}`}>{rankLabel(card.rank)}</p>
+                        <p className={`text-xl leading-6 ${suitColor(card.suit)}`}>{suitSymbol[card.suit]}</p>
+                      </div>
                     ))}
                   </div>
+                  {myTurn ? (
+                    <div className="rounded-2xl border border-white/20 bg-black/45 p-3">
+                      <p className="mb-2 text-lg font-semibold">Choose a bid:</p>
+                      <div className="grid grid-cols-7 gap-2">
+                        {Array.from({ length: 14 }, (_, i) => i).map((n) => (
+                          <button
+                            key={n}
+                            onClick={() => {
+                              setBidValue(String(n));
+                              void submitBidAction();
+                            }}
+                            disabled={submitting}
+                            className={`rounded-lg border px-3 py-2 text-lg font-semibold transition ${
+                              bidValue === String(n)
+                                ? "border-cyan-300 bg-cyan-400/20 text-white"
+                                : "border-white/30 bg-white/10 hover:bg-white/20"
+                            } disabled:opacity-60`}
+                          >
+                            {n}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
                 </div>
-              )}
-            </div>
-          ) : null}
+              ) : null}
 
-          {phase === "PLAYING" ? (
-            <>
-              <p className="mb-2 text-sm text-white/80">
-                {myTurn ? "Your turn: tap a card to play. You can still drag to center or hold to slam." : "Waiting for current player..."}
-              </p>
-              <div className="flex flex-wrap gap-2 pb-2">
-                {myHand.map((card) => {
-                  const id = cardId(card);
-                  const isSelected = selectedCard === id;
-                  const isDragging = dragCard === id;
-                  return (
-                    <button
-                      key={id}
-                      onClick={() => {
-                        if (myTurn && phase === "PLAYING" && !submitting) {
-                          void playCardAction(card, false);
-                        }
-                      }}
-                      onPointerDown={(e) => onCardPointerDown(e, card)}
-                      onPointerMove={(e) => onCardPointerMove(e, card)}
-                      onPointerUp={(e) => onCardPointerUp(e, card)}
-                      className={`relative h-24 w-16 rounded-md bg-gradient-to-b ${themeClass[deckTheme]} p-1 text-center shadow-md transition ${isSelected ? "ring-2 ring-cyan-300" : "ring-1 ring-black/20"} ${holdReadyCard === id ? "scale-105 ring-2 ring-emerald-300" : ""}`}
-                      style={
-                        isDragging
-                          ? {
-                              transform: `translate(${dragPos.x}px, ${dragPos.y}px) rotate(${dragPos.x / 8}deg)`,
-                              zIndex: 40,
+              {phase === "PLAYING" ? (
+                <div className="overflow-x-auto pb-1">
+                  <div className="flex min-h-[7.5rem] items-end justify-center px-3 pt-2">
+                    {myHand.map((card, index) => {
+                      const id = cardId(card);
+                      const isSelected = selectedCard === id;
+                      const isDragging = dragCard === id;
+                      return (
+                        <button
+                          key={id}
+                          onClick={() => {
+                            if (myTurn && phase === "PLAYING" && !submitting) {
+                              void playCardAction(card, false);
                             }
-                          : undefined
-                      }
-                      disabled={!myTurn || submitting}
-                    >
-                      <p className={`text-[11px] ${suitColor(card.suit)}`}>{rankLabel(card.rank)}</p>
-                      <p className={`text-2xl leading-7 ${suitColor(card.suit)}`}>{suitSymbol[card.suit]}</p>
-                    </button>
-                  );
-                })}
-              </div>
-            </>
-          ) : null}
+                          }}
+                          onPointerDown={(e) => onCardPointerDown(e, card)}
+                          onPointerMove={(e) => onCardPointerMove(e, card)}
+                          onPointerUp={(e) => onCardPointerUp(e, card)}
+                          className={`relative -ml-5 h-24 w-16 shrink-0 rounded-md bg-gradient-to-b ${themeClass[deckTheme]} p-1 text-center shadow-[0_10px_24px_rgba(0,0,0,0.32)] transition ${
+                            index === 0 ? "ml-0" : ""
+                          } ${isSelected ? "ring-2 ring-cyan-300" : "ring-1 ring-black/20"} ${holdReadyCard === id ? "scale-105 ring-2 ring-emerald-300" : ""}`}
+                          style={
+                            isDragging
+                              ? {
+                                  transform: `translate(${dragPos.x}px, ${dragPos.y}px) rotate(${dragPos.x / 8}deg)`,
+                                  zIndex: 40,
+                                }
+                              : {
+                                  transform: `translateY(${isSelected ? -10 : 0}px) rotate(${(index - (myHand.length - 1) / 2) * 2.5}deg)`,
+                                  transformOrigin: "center bottom",
+                                  zIndex: index + 1,
+                                }
+                          }
+                          disabled={!myTurn || submitting}
+                        >
+                          <p className={`text-[11px] ${suitColor(card.suit)}`}>{rankLabel(card.rank)}</p>
+                          <p className={`text-2xl leading-7 ${suitColor(card.suit)}`}>{suitSymbol[card.suit]}</p>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              ) : null}
+            </div>
+          </div>
         </div>
       </div>
 
@@ -932,3 +951,4 @@ export default function PlayPage() {
     </main>
   );
 }
+
