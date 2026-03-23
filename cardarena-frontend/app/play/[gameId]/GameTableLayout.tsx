@@ -1,5 +1,9 @@
 "use client";
 
+import Image from "next/image";
+import CardBack from "./CardBack";
+import PlayingCard from "./PlayingCard";
+
 type Card = { suit: "SPADES" | "HEARTS" | "DIAMONDS" | "CLUBS"; rank: number };
 type TrickCard = Card & { seat: number };
 
@@ -35,13 +39,6 @@ type Props = {
   bookFx?: Array<{ id: number; team: "A" | "B" }>;
 };
 
-const suitSymbol: Record<Card["suit"], string> = {
-  SPADES: "\u2660",
-  HEARTS: "\u2665",
-  DIAMONDS: "\u2666",
-  CLUBS: "\u2663",
-};
-
 function seatForPosition(mySeat: number, position: "top" | "right" | "bottom" | "left") {
   const base = [1, 2, 3, 4];
   const myIndex = Math.max(0, base.indexOf(mySeat || 1));
@@ -71,18 +68,6 @@ function playerLabel(players: Player[] | undefined, seat: number, mySeat: number
   if (seat === mySeat) return `${player.user?.username || "You"} (You)`;
   if (player.isBot) return player.user?.username || `Bot ${seat}`;
   return player.user?.username || `Seat ${seat}`;
-}
-
-function suitColor(suit: Card["suit"]) {
-  return suit === "HEARTS" || suit === "DIAMONDS" ? "text-rose-500" : "text-slate-900";
-}
-
-function rankLabel(rank: number) {
-  if (rank === 11) return "J";
-  if (rank === 12) return "Q";
-  if (rank === 13) return "K";
-  if (rank === 14) return "A";
-  return String(rank);
 }
 
 function avatarInitial(label: string) {
@@ -144,10 +129,7 @@ function SeatBlock({
           <p className="mt-2 max-w-28 text-[11px] font-semibold leading-tight text-white/86">{label}</p>
           <p className={`mt-1 text-xs font-bold ${isCurrentTurn ? "text-emerald-200" : "text-amber-200"}`}>Bid: {bid ?? "-"}</p>
         </div>
-        <div className={`relative mx-auto mt-2 overflow-hidden rounded-md bg-[radial-gradient(circle_at_20%_20%,#4ade80,#0f766e_52%,#05231f)] ring-1 ring-white/20 shadow-[inset_0_1px_0_rgba(255,255,255,0.2),0_8px_14px_rgba(0,0,0,0.25)] ${cardClass}`}>
-          <div className="absolute inset-0 bg-[linear-gradient(135deg,rgba(255,255,255,0.2),transparent_40%,rgba(0,0,0,0.12))]" />
-          <div className="absolute inset-0 grid place-items-center text-[10px] font-bold tracking-[0.22em] text-white/45">CA</div>
-        </div>
+        <CardBack className={`mx-auto mt-2 ${cardClass}`} />
         <p className="mt-1.5 text-[10px] font-medium uppercase tracking-[0.18em] text-white/56">{count} cards</p>
       </div>
     </div>
@@ -178,9 +160,10 @@ export default function GameTableLayout({ gameState, mySeat, players, trick, pla
       <div className="pointer-events-none absolute inset-6 rounded-[26px] border border-white/8 bg-[radial-gradient(circle_at_50%_52%,rgba(255,255,255,0.02),transparent_58%)]" />
       <div className="pointer-events-none absolute inset-0 rounded-[30px] bg-[linear-gradient(180deg,rgba(255,255,255,0.06),transparent_18%,transparent_82%,rgba(0,0,0,0.26))]" />
 
-      <div className="pointer-events-none absolute left-1/2 top-1/2 z-0 -translate-x-1/2 -translate-y-1/2 text-center opacity-20">
-        <div className="text-[80px] font-black tracking-[0.08em] text-white/15 md:text-[110px]">CA</div>
-        <p className="mt-2 text-xs tracking-[0.6em] text-emerald-200/70">COMPETE</p>
+      <div className="pointer-events-none absolute left-1/2 top-1/2 z-0 -translate-x-1/2 -translate-y-1/2 text-center">
+        <div className="relative mx-auto h-28 w-40 opacity-25 drop-shadow-[0_0_18px_rgba(110,231,183,0.16)] animate-[logoPulse_4.6s_ease-in-out_infinite] md:h-36 md:w-56">
+          <Image src="/cardarena-logo.png" alt="CardArena" fill sizes="224px" className="object-contain" />
+        </div>
       </div>
 
       <div className="absolute left-1/2 top-2 z-20 -translate-x-1/2 text-center">
@@ -241,12 +224,9 @@ export default function GameTableLayout({ gameState, mySeat, players, trick, pla
           {playedCardFx ? (
             <div
               key={playedCardFx.id}
-              className="pointer-events-none absolute left-1/2 top-[88%] h-16 w-11 -translate-x-1/2 -translate-y-1/2 animate-[playToCenter_300ms_ease-out_forwards]"
+              className="pointer-events-none absolute left-1/2 top-[88%] h-16 w-11 -translate-x-1/2 -translate-y-1/2 animate-[playToCenter_320ms_cubic-bezier(0.22,1,0.36,1)_forwards]"
             >
-              <div className="h-full w-full rounded-md bg-gradient-to-b from-white to-slate-100 p-1 text-center shadow-[0_14px_26px_rgba(0,0,0,0.28)] ring-1 ring-black/10">
-                <p className={`text-[10px] ${suitColor(playedCardFx.card.suit)}`}>{rankLabel(playedCardFx.card.rank)}</p>
-                <p className={`text-xl leading-6 ${suitColor(playedCardFx.card.suit)}`}>{suitSymbol[playedCardFx.card.suit]}</p>
-              </div>
+              <PlayingCard card={playedCardFx.card} className="h-full w-full shadow-[0_14px_26px_rgba(0,0,0,0.28)]" centerSuitClassName="text-[1.25rem] leading-none" cornerClassName="text-[9px]" />
             </div>
           ) : null}
           {(trick || []).map((card, idx) => {
@@ -264,15 +244,13 @@ export default function GameTableLayout({ gameState, mySeat, players, trick, pla
                 }}
               >
                 <div
-                  className={`h-full w-full rounded-md bg-gradient-to-b from-white to-slate-100 p-1 text-center ring-1 ring-black/10 animate-[trickCardIn_220ms_ease-out] ${
+                  className={`h-full w-full animate-[trickCardIn_280ms_cubic-bezier(0.22,1,0.36,1)] ${
                     isMostRecent
-                      ? "shadow-[0_0_0_2px_rgba(255,255,255,0.48),0_14px_28px_rgba(0,0,0,0.28)] animate-[trickCardIn_220ms_ease-out,recentCardGlow_1.8s_ease-in-out]"
+                      ? "shadow-[0_0_0_2px_rgba(255,255,255,0.48),0_14px_28px_rgba(0,0,0,0.28)] animate-[trickCardIn_280ms_cubic-bezier(0.22,1,0.36,1),recentCardGlow_1.8s_ease-in-out]"
                       : "shadow-[0_10px_18px_rgba(0,0,0,0.22)]"
                   }`}
                 >
-                  <p className={`text-[10px] ${suitColor(card.suit)}`}>{rankLabel(card.rank)}</p>
-                  <p className={`text-xl leading-6 ${suitColor(card.suit)}`}>{suitSymbol[card.suit]}</p>
-                  <p className="text-[9px] text-slate-600">S{card.seat}</p>
+                  <PlayingCard card={card} className="h-full w-full" centerSuitClassName="text-[1.2rem] leading-none" cornerClassName="text-[9px]" footerLabel={`S${card.seat}`} />
                 </div>
               </div>
             );
@@ -347,18 +325,36 @@ export default function GameTableLayout({ gameState, mySeat, players, trick, pla
             transform: translateY(0px);
           }
         }
+        @keyframes logoPulse {
+          0% {
+            opacity: 0.2;
+            filter: drop-shadow(0 0 0 rgba(110,231,183,0));
+          }
+          50% {
+            opacity: 0.28;
+            filter: drop-shadow(0 0 12px rgba(110,231,183,0.18));
+          }
+          100% {
+            opacity: 0.2;
+            filter: drop-shadow(0 0 0 rgba(110,231,183,0));
+          }
+        }
         @keyframes playToCenter {
           0% {
             opacity: 0.98;
             transform: translate(-50%, -50%) translateY(0px) rotate(-10deg) scale(1);
           }
-          70% {
+          68% {
             opacity: 1;
-            transform: translate(-50%, -50%) translateY(-172px) rotate(4deg) scale(1.08);
+            transform: translate(-50%, -50%) translateY(-176px) rotate(4deg) scale(1.1);
           }
-          86% {
-            opacity: 0.96;
-            transform: translate(-50%, -50%) translateY(-165px) rotate(2deg) scale(0.96);
+          82% {
+            opacity: 0.98;
+            transform: translate(-50%, -50%) translateY(-166px) rotate(2deg) scale(0.94);
+          }
+          92% {
+            opacity: 0.95;
+            transform: translate(-50%, -50%) translateY(-171px) rotate(3deg) scale(1.03);
           }
           100% {
             opacity: 0.9;

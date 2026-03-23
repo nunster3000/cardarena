@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
+import PlayingCard from "./PlayingCard";
 
 type Card = { suit: "SPADES" | "HEARTS" | "DIAMONDS" | "CLUBS"; rank: number };
 
@@ -9,25 +10,6 @@ type Props = {
   onPlayCard: (card: Card, slam?: boolean) => void;
   isMyTurn: boolean;
 };
-
-const suitSymbol: Record<Card["suit"], string> = {
-  SPADES: "\u2660",
-  HEARTS: "\u2665",
-  DIAMONDS: "\u2666",
-  CLUBS: "\u2663",
-};
-
-function rankLabel(rank: number) {
-  if (rank === 11) return "J";
-  if (rank === 12) return "Q";
-  if (rank === 13) return "K";
-  if (rank === 14) return "A";
-  return String(rank);
-}
-
-function suitColor(suit: Card["suit"]) {
-  return suit === "HEARTS" || suit === "DIAMONDS" ? "text-rose-500" : "text-slate-900";
-}
 
 export default function HandDock({ cards, onPlayCard, isMyTurn }: Props) {
   const holdTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -63,7 +45,9 @@ export default function HandDock({ cards, onPlayCard, isMyTurn }: Props) {
     const shouldSlam = slamReadyId === id;
     clearHold();
     setSlamReadyId(null);
-    onPlayCard(card, shouldSlam);
+    setTimeout(() => {
+      onPlayCard(card, shouldSlam);
+    }, 40);
   }
 
   return (
@@ -77,10 +61,16 @@ export default function HandDock({ cards, onPlayCard, isMyTurn }: Props) {
         </div>
 
         <div className="overflow-x-auto pb-2">
-          <div className="flex min-h-[7.75rem] items-end justify-center px-3 pt-1">
+          <div className="perspective-[1200px]">
+            <div className="flex min-h-[11rem] items-end justify-center px-4 pt-2 md:min-h-[13rem]">
             {cards.map((card, index) => {
               const id = `${card.suit}-${card.rank}`;
               const slamReady = slamReadyId === id;
+              const spread = index - (cards.length - 1) / 2;
+              const rotationJitter = ((index % 3) - 1) * 0.9;
+              const liftJitter = index % 2 === 0 ? 1.5 : -0.5;
+              const shadowDepth = 10 + index;
+              const shadowBlur = 24 + index * 2;
               return (
                 <button
                   key={id}
@@ -89,20 +79,30 @@ export default function HandDock({ cards, onPlayCard, isMyTurn }: Props) {
                   onPointerCancel={() => cancelHold(card)}
                   onPointerLeave={() => cancelHold(card)}
                   disabled={!isMyTurn}
-                  className={`relative -ml-5 h-24 w-16 shrink-0 rounded-md bg-gradient-to-b from-white to-slate-100 p-1 text-center shadow-[0_10px_24px_rgba(0,0,0,0.32)] ring-1 ring-black/20 transition hover:-translate-y-2 disabled:cursor-not-allowed disabled:opacity-75 ${
+                  className={`relative -ml-8 h-36 w-24 shrink-0 transition-all duration-300 [transition-timing-function:cubic-bezier(0.22,1,0.36,1)] hover:scale-[1.05] hover:-translate-y-3.5 active:translate-y-[2px] active:scale-[0.98] active:brightness-95 disabled:cursor-not-allowed disabled:opacity-75 md:-ml-10 md:h-44 md:w-28 ${
                     index === 0 ? "ml-0" : ""
-                  } ${slamReady ? "ring-2 ring-emerald-300 shadow-[0_0_20px_rgba(52,211,153,0.35),0_10px_24px_rgba(0,0,0,0.32)]" : ""}`}
+                  }`}
                   style={{
-                    transform: `translateY(${slamReady ? -12 : 0}px) rotate(${(index - (cards.length - 1) / 2) * 2.5}deg) scale(${slamReady ? 1.05 : 1})`,
+                    transform: `perspective(800px) rotateX(${slamReady ? 8 : 4}deg) rotateY(${spread * 2}deg) rotate(${spread * 6 + rotationJitter}deg) translateY(${Math.abs(spread) * 6 + liftJitter - (slamReady ? 12 : 0)}px) scale(${slamReady ? 1.08 : 1})`,
                     transformOrigin: "center bottom",
-                    zIndex: index + 1,
+                    zIndex: 100 + index,
                   }}
                 >
-                  <p className={`text-[11px] ${suitColor(card.suit)}`}>{rankLabel(card.rank)}</p>
-                  <p className={`text-2xl leading-7 ${suitColor(card.suit)}`}>{suitSymbol[card.suit]}</p>
+                  <PlayingCard
+                    card={card}
+                    className={`h-full w-full ${slamReady ? "ring-2 ring-emerald-300" : ""}`}
+                    centerSuitClassName="text-[2.9rem] leading-none md:text-[3.35rem]"
+                    cornerClassName="text-[13px] md:text-[15px]"
+                    style={{
+                      boxShadow: slamReady
+                        ? `0 0 20px rgba(52,211,153,0.35), 0 ${shadowDepth}px ${shadowBlur}px rgba(0,0,0,0.35)`
+                        : `0 ${shadowDepth}px ${shadowBlur}px rgba(0,0,0,0.35)`,
+                    }}
+                  />
                 </button>
               );
             })}
+            </div>
           </div>
         </div>
       </div>

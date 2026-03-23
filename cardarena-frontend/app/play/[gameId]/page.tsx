@@ -5,6 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import GameTableLayout from "./GameTableLayout";
 import HandDock from "./HandDock";
+import PlayingCard from "./PlayingCard";
 import TurnTimer from "./TurnTimer";
 import { clearSession, getSession } from "../../../lib/session";
 import { closeGameSocket, getGameSocket } from "../../../lib/socket";
@@ -48,13 +49,6 @@ type GamePayload = {
 type DeckBack = "emerald" | "cosmic" | "carbon";
 type DeckTheme = "classic" | "neon" | "midnight";
 
-const suitSymbol: Record<Card["suit"], string> = {
-  SPADES: "\u2660",
-  HEARTS: "\u2665",
-  DIAMONDS: "\u2666",
-  CLUBS: "\u2663",
-};
-
 const themeClass: Record<DeckTheme, string> = {
   classic: "from-white to-slate-100 text-slate-900",
   neon: "from-cyan-100 to-emerald-100 text-slate-900",
@@ -63,18 +57,6 @@ const themeClass: Record<DeckTheme, string> = {
 
 function cardId(card: Card) {
   return `${card.suit}-${card.rank}`;
-}
-
-function rankLabel(rank: number) {
-  if (rank === 11) return "J";
-  if (rank === 12) return "Q";
-  if (rank === 13) return "K";
-  if (rank === 14) return "A";
-  return String(rank);
-}
-
-function suitColor(suit: Card["suit"]) {
-  return suit === "HEARTS" || suit === "DIAMONDS" ? "text-rose-500" : "text-slate-900";
 }
 
 function bidForSeat(state: GameState | undefined, seat: number) {
@@ -372,7 +354,7 @@ export default function PlayPage() {
         setTableShake(true);
         setSlamZoom(true);
         setSlamFlash(true);
-        playSfx("SLAM");
+        setTimeout(() => playSfx("SLAM"), 40);
         if (navigator.vibrate) navigator.vibrate(28);
         setTimeout(() => setTableShake(false), 340);
         setTimeout(() => setSlamZoom(false), 320);
@@ -556,10 +538,13 @@ export default function PlayPage() {
             <div className="space-y-3">
               <div className="flex gap-2 overflow-x-auto pb-1">
                 {myHand.map((card) => (
-                  <div key={cardId(card)} className={`h-20 min-w-14 rounded-md bg-gradient-to-b ${themeClass[deckTheme]} p-1 text-center shadow-md ring-1 ring-black/20`}>
-                    <p className={`text-[11px] ${suitColor(card.suit)}`}>{rankLabel(card.rank)}</p>
-                    <p className={`text-xl leading-6 ${suitColor(card.suit)}`}>{suitSymbol[card.suit]}</p>
-                  </div>
+                  <PlayingCard
+                    key={cardId(card)}
+                    card={card}
+                    className={`h-20 min-w-14 ${themeClass[deckTheme]}`}
+                    centerSuitClassName="text-[1.3rem] leading-none"
+                    cornerClassName="text-[9px]"
+                  />
                 ))}
               </div>
               <p className="text-sm text-white/72">
@@ -612,8 +597,9 @@ export default function PlayPage() {
         @keyframes tableShake {
           0% { transform: translate(0, 0); }
           20% { transform: translate(6px, -3px); }
-          45% { transform: translate(-6px, 3px); }
-          70% { transform: translate(3px, -1px); }
+          40% { transform: translate(-6px, 3px); }
+          60% { transform: translate(3px, -1px); }
+          80% { transform: translate(-2px, 1px); }
           100% { transform: translate(0, 0); }
         }
         @keyframes slamRipple {

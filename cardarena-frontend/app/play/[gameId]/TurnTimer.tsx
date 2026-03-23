@@ -44,12 +44,15 @@ export default function TurnTimer({ turnDeadlineAt, currentTurnSeat, isMyTurn, v
       <style jsx>{`
         @keyframes urgentTimerPulse {
           0% {
+            transform: scale(1);
             box-shadow: 0 8px 24px rgba(0,0,0,0.28), 0 0 0 rgba(244,63,94,0);
           }
           50% {
+            transform: scale(1.05);
             box-shadow: 0 8px 24px rgba(0,0,0,0.28), 0 0 22px rgba(244,63,94,0.22);
           }
           100% {
+            transform: scale(1);
             box-shadow: 0 8px 24px rgba(0,0,0,0.28), 0 0 0 rgba(244,63,94,0);
           }
         }
