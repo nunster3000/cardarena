@@ -122,6 +122,16 @@ router.get("/:gameId", async (req: AuthRequest, res, next) => {
     const game = await prisma.game.findUnique({
       where: { id: gameId },
       include: {
+        tournament: {
+          select: {
+            entryFee: true,
+            _count: {
+              select: {
+                entries: true,
+              },
+            },
+          },
+        },
         players: {
           select: {
             seat: true,
@@ -141,6 +151,7 @@ router.get("/:gameId", async (req: AuthRequest, res, next) => {
         status: game.status,
         phase: game.phase,
         tournamentId: game.tournamentId,
+        potCents: (game.tournament?.entryFee ?? 0) * (game.tournament?._count.entries ?? 0),
         state: serializeGameStateForSeat(game.state, playerSeat),
         playerSeat,
         players: game.players,
