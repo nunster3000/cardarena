@@ -181,6 +181,7 @@ export default function DashboardPage() {
   const [depositAmount, setDepositAmount] = useState("");
   const [withdrawAmount, setWithdrawAmount] = useState("");
   const [uploading, setUploading] = useState(false);
+  const [localAvatarPreview, setLocalAvatarPreview] = useState<string>("");
   const [isAdminAccount, setIsAdminAccount] = useState(false);
   const [queueingTableId, setQueueingTableId] = useState<string | null>(null);
   const [queueSeconds, setQueueSeconds] = useState(0);
@@ -189,8 +190,13 @@ export default function DashboardPage() {
   const [partyInvites, setPartyInvites] = useState<PartyInvite[]>([]);
   const [partyInviteTarget, setPartyInviteTarget] = useState("");
   const [activeGame, setActiveGame] = useState<ActiveGame | null>(null);
+  const [avatarMenuOpen, setAvatarMenuOpen] = useState(false);
+  const [avatarViewerOpen, setAvatarViewerOpen] = useState(false);
+  const [avatarPresetOpen, setAvatarPresetOpen] = useState(false);
   const socketRef = useRef<ReturnType<typeof getGameSocket> | null>(null);
   const botFillRequestedRef = useRef(false);
+  const avatarInputRef = useRef<HTMLInputElement | null>(null);
+  const avatarMenuRef = useRef<HTMLDivElement | null>(null);
 
   const topFriends = useMemo(() => friends.filter((f) => f.isTop), [friends]);
   const walletBalance = Number(me?.wallet?.balance || 0);
@@ -314,8 +320,10 @@ export default function DashboardPage() {
         body: JSON.stringify(payload),
       });
       await loadAll();
+      setLocalAvatarPreview("");
       setMessage("Profile updated.");
     } catch (err: unknown) {
+      setLocalAvatarPreview("");
       setMessage(err instanceof Error ? err.message : "Profile update failed");
     }
   }
@@ -324,6 +332,7 @@ export default function DashboardPage() {
     try {
       setUploading(true);
       const dataUrl = await toCroppedDataUrl(file);
+      setLocalAvatarPreview(dataUrl);
       await saveProfile({ avatarUrl: dataUrl, avatarPreset: "" });
     } finally {
       setUploading(false);
@@ -599,10 +608,15 @@ export default function DashboardPage() {
     router.replace("/admin");
   }
 
-  const avatar =
-    me?.avatarUrl ||
-    (me?.avatarPreset ? null : null);
-  const avatarPreset = AVATARS.find((a) => a.key === me?.avatarPreset);
+  const avatarUrl = me?.avatarUrl?.trim() || "";
+  const avatarPreset = AVATARS.find((a) => a.key === me?.avatarPreset) || null;
+  const avatarSrc = localAvatarPreview || avatarUrl || avatarPreset?.src || null;
+  const avatarAlt = localAvatarPreview || avatarUrl ? "Uploaded avatar" : avatarPreset?.label || "Default avatar";
+
+  function openAvatarUpload() {
+    setAvatarMenuOpen(false);
+    avatarInputRef.current?.click();
+  }
 
   const freeTournament = tournaments.find((t) => t.entryFee === 0 && t.status === "OPEN");
   const canUseFriendsMode = Boolean(party && party.members.length > 1);
@@ -699,6 +713,21 @@ export default function DashboardPage() {
   }, [token]);
 
   useEffect(() => {
+    if (!avatarMenuOpen) return;
+
+    function handlePointerDown(event: MouseEvent) {
+      if (!avatarMenuRef.current) return;
+      if (avatarMenuRef.current.contains(event.target as Node)) return;
+      setAvatarMenuOpen(false);
+    }
+
+    document.addEventListener("mousedown", handlePointerDown);
+    return () => {
+      document.removeEventListener("mousedown", handlePointerDown);
+    };
+  }, [avatarMenuOpen]);
+
+  useEffect(() => {
     if (!party) return;
     if (party.queue.status === "MATCHED" && party.queue.matchGameId) {
       setQueueingTableId(null);
@@ -769,45 +798,81 @@ export default function DashboardPage() {
           <div className="rounded-2xl border border-white/15 bg-black/35 p-4">
             <h2 className="text-lg font-bold">My Profile</h2>
             <div className="mt-3 flex items-start gap-4">
-              {avatar ? (
-                <Image src={avatar} alt="Avatar" width={112} height={112} unoptimized className="h-28 w-28 rounded-full border border-white/20 object-cover" />
-              ) : avatarPreset ? (
-                <Image src={avatarPreset.src} alt={avatarPreset.label} width={112} height={112} className="h-28 w-28 rounded-full border border-white/20 bg-white/10 object-cover" />
-              ) : (
-                <div className="flex h-28 w-28 items-center justify-center rounded-full border border-white/20 bg-white/10 text-2xl">
-                  {me?.avatarPreset || "USER"}
-                </div>
-              )}
-              <div className="flex-1">
-                <p className="font-semibold">{me?.username}</p>
-                <p className="text-xs text-white/70">{me?.email}</p>
-                <p className="mt-1 text-xs text-emerald-300">{me?.wallet?.isFrozen ? "Wallet Frozen" : "Wallet Active"}</p>
-                <label className="mt-3 block text-xs text-white/70">Upload profile photo (auto-cropped to 800x800)</label>
+              <div ref={avatarMenuRef} className="relative">
+                <button
+                  type="button"
+                  onClick={() => setAvatarMenuOpen((prev) => !prev)}
+                  className="group relative block rounded-full focus:outline-none focus:ring-2 focus:ring-emerald-300/50"
+                >
+                  {avatarSrc ? (
+                    <Image
+                      src={avatarSrc}
+                      alt={avatarAlt}
+                      width={112}
+                      height={112}
+                      unoptimized={Boolean(avatarUrl)}
+                      className="h-28 w-28 rounded-full border border-white/20 bg-white/10 object-cover transition group-hover:brightness-110"
+                    />
+                  ) : (
+                    <div className="flex h-28 w-28 items-center justify-center rounded-full border border-white/20 bg-white/10 text-2xl transition group-hover:bg-white/15">
+                      {me?.avatarPreset || "USER"}
+                    </div>
+                  )}
+                  <div className="absolute inset-0 rounded-full bg-black/0 transition group-hover:bg-black/10" />
+                  <div className="absolute bottom-1 right-1 rounded-full border border-white/15 bg-slate-950/80 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-white/85 backdrop-blur-sm">
+                    Edit
+                  </div>
+                </button>
                 <input
+                  ref={avatarInputRef}
                   type="file"
                   accept="image/*"
                   onChange={(e) => {
                     const file = e.target.files?.[0];
                     if (file) onAvatarUpload(file);
+                    e.currentTarget.value = "";
                   }}
-                  className="mt-1 w-full text-xs text-white/80"
+                  className="hidden"
                 />
-                {uploading && <p className="mt-1 text-xs text-white/70">Processing photo...</p>}
+                {avatarMenuOpen ? (
+                  <div className="absolute left-0 top-[calc(100%+0.75rem)] z-20 w-56 rounded-2xl border border-white/15 bg-slate-950/95 p-2 shadow-[0_18px_40px_rgba(0,0,0,0.35)] backdrop-blur-xl">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setAvatarMenuOpen(false);
+                        setAvatarViewerOpen(true);
+                      }}
+                      className="w-full rounded-xl px-3 py-2 text-left text-sm text-white/90 transition hover:bg-white/10"
+                    >
+                      View profile picture
+                    </button>
+                    <button
+                      type="button"
+                      onClick={openAvatarUpload}
+                      className="mt-1 w-full rounded-xl px-3 py-2 text-left text-sm text-white/90 transition hover:bg-white/10"
+                    >
+                      Upload new photo
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setAvatarMenuOpen(false);
+                        setAvatarPresetOpen(true);
+                      }}
+                      className="mt-1 w-full rounded-xl px-3 py-2 text-left text-sm text-white/90 transition hover:bg-white/10"
+                    >
+                      Choose avatar preset
+                    </button>
+                  </div>
+                ) : null}
               </div>
-            </div>
-
-            <p className="mt-4 text-xs text-white/70">Choose avatar preset</p>
-            <div className="mt-2 grid grid-cols-4 gap-2">
-              {AVATARS.map((icon) => (
-                <button
-                  key={icon.key}
-                  onClick={() => saveProfile({ avatarPreset: icon.key, avatarUrl: "" })}
-                  className="rounded-lg bg-white/10 p-2 text-xs hover:bg-white/20"
-                >
-                  <Image src={icon.src} alt={icon.label} width={48} height={48} className="mx-auto h-12 w-12 rounded-full object-cover" />
-                  <span className="mt-1 block">{icon.label}</span>
-                </button>
-              ))}
+              <div className="flex-1">
+                <p className="font-semibold">{me?.username}</p>
+                <p className="text-xs text-white/70">{me?.email}</p>
+                <p className="mt-1 text-xs text-emerald-300">{me?.wallet?.isFrozen ? "Wallet Frozen" : "Wallet Active"}</p>
+                <p className="mt-3 text-xs text-white/70">Click your profile image to view it, upload a new photo, or switch presets.</p>
+                {uploading && <p className="mt-2 text-xs text-white/70">Processing photo...</p>}
+              </div>
             </div>
           </div>
 
@@ -1327,6 +1392,72 @@ export default function DashboardPage() {
             </div>
           </div>
         )}
+
+        {avatarViewerOpen ? (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 px-4 backdrop-blur-sm" onClick={() => setAvatarViewerOpen(false)}>
+            <div
+              className="w-full max-w-md rounded-[28px] border border-white/15 bg-slate-950/95 p-5 shadow-[0_24px_60px_rgba(0,0,0,0.4)]"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center justify-between gap-3">
+                <h3 className="text-lg font-bold">Profile Picture</h3>
+                <button onClick={() => setAvatarViewerOpen(false)} className="rounded-lg bg-white/10 px-3 py-1 text-xs hover:bg-white/15">
+                  Close
+                </button>
+              </div>
+              <div className="mt-4 flex justify-center">
+                {avatarSrc ? (
+                  <Image
+                    src={avatarSrc}
+                    alt={avatarAlt}
+                    width={320}
+                    height={320}
+                    unoptimized={Boolean(avatarUrl)}
+                    className="h-72 w-72 rounded-3xl border border-white/15 bg-white/10 object-cover"
+                  />
+                ) : (
+                  <div className="flex h-72 w-72 items-center justify-center rounded-3xl border border-white/15 bg-white/10 text-4xl">
+                    {me?.avatarPreset || "USER"}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        ) : null}
+
+        {avatarPresetOpen ? (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 px-4 backdrop-blur-sm" onClick={() => setAvatarPresetOpen(false)}>
+            <div
+              className="w-full max-w-xl rounded-[28px] border border-white/15 bg-slate-950/95 p-5 shadow-[0_24px_60px_rgba(0,0,0,0.4)]"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.24em] text-cyan-200/70">Avatar Presets</p>
+                  <h3 className="mt-1 text-lg font-bold">Choose Your Look</h3>
+                </div>
+                <button onClick={() => setAvatarPresetOpen(false)} className="rounded-lg bg-white/10 px-3 py-1 text-xs hover:bg-white/15">
+                  Close
+                </button>
+              </div>
+              <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
+                {AVATARS.map((icon) => (
+                  <button
+                    key={icon.key}
+                    onClick={() => {
+                      void saveProfile({ avatarPreset: icon.key, avatarUrl: "" });
+                      setAvatarPresetOpen(false);
+                    }}
+                    className="rounded-2xl bg-white/8 p-3 text-xs transition hover:bg-white/14"
+                  >
+                    <Image src={icon.src} alt={icon.label} width={56} height={56} className="mx-auto h-14 w-14 rounded-full object-cover" />
+                    <span className="mt-2 block font-semibold text-white/90">{icon.label}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        ) : null}
       </div>
     </main>
   );

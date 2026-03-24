@@ -4,26 +4,76 @@ type Suit = "SPADES" | "HEARTS" | "DIAMONDS" | "CLUBS";
 
 type Props = {
   suit: Suit;
+  size?: number | string;
   className?: string;
+  tone?: "default" | "playArea";
 };
 
-export default function SuitIcon({ suit, className = "" }: Props) {
+const suitColor: Record<Suit, string> = {
+  SPADES: "#1e3a8a",
+  HEARTS: "#dc2626",
+  DIAMONDS: "#c026d3",
+  CLUBS: "#059669",
+};
+
+const suitAsset: Record<Suit, string> = {
+  SPADES: "/spade.svg",
+  HEARTS: "/heart.svg",
+  DIAMONDS: "/diamond.svg",
+  CLUBS: "/club.svg",
+};
+
+export default function SuitIcon({ suit, size = "1em", className = "", tone = "default" }: Props) {
   return (
-    <span className={`inline-flex items-center justify-center ${className}`} aria-hidden="true">
-      <svg viewBox="0 0 64 64" className="h-full w-full fill-current" focusable="false">
-        {suit === "SPADES" ? (
-          <path d="M32 6C27.5 14.2 18 21.2 12.4 27.6C7.7 33 6 36.8 6 41.2C6 49.4 12.4 55 20.4 55C25.1 55 28.7 52.9 32 48.5C35.3 52.9 38.9 55 43.6 55C51.6 55 58 49.4 58 41.2C58 36.8 56.3 33 51.6 27.6C46 21.2 36.5 14.2 32 6ZM25.8 39.5C28.5 39.5 30.8 41.1 32 43.4C33.2 41.1 35.5 39.5 38.2 39.5C40.6 39.5 42.7 40.7 44.1 42.6C43 35.8 38.3 30.7 32 24.9C25.7 30.7 21 35.8 19.9 42.6C21.3 40.7 23.4 39.5 25.8 39.5ZM27.5 53.5H36.5L32 41.8L27.5 53.5Z" />
-        ) : null}
-        {suit === "HEARTS" ? (
-          <path d="M32 56C31.3 56 30.6 55.7 30 55.1L11.3 36.7C7.2 32.6 5 28.7 5 23.8C5 14.4 12 8 20.5 8C25.3 8 29.6 10.1 32 13.7C34.4 10.1 38.7 8 43.5 8C52 8 59 14.4 59 23.8C59 28.7 56.8 32.6 52.7 36.7L34 55.1C33.4 55.7 32.7 56 32 56Z" />
-        ) : null}
-        {suit === "DIAMONDS" ? (
-          <path d="M32 6L54 32L32 58L10 32L32 6Z" />
-        ) : null}
-        {suit === "CLUBS" ? (
-          <path d="M44.6 29C49.8 29 54 24.8 54 19.6S49.8 10.2 44.6 10.2C39.7 10.2 35.8 13.9 35.3 18.6C34.4 17.8 33.3 17.1 32 16.7C30.7 17.1 29.6 17.8 28.7 18.6C28.2 13.9 24.3 10.2 19.4 10.2C14.2 10.2 10 14.4 10 19.6S14.2 29 19.4 29C20 29 20.6 28.9 21.2 28.8C17 30.8 14.1 35.1 14.1 40.1C14.1 47.2 19.8 53 27 53C29.4 53 31.6 52.3 33.5 51L29.2 58H34.8L30.5 51C32.4 52.3 34.6 53 37 53C44.2 53 49.9 47.2 49.9 40.1C49.9 35.1 47 30.8 42.8 28.8C43.4 28.9 44 29 44.6 29Z" />
-        ) : null}
-      </svg>
+    <span
+      className={`inline-block align-middle ${className}`}
+      aria-hidden="true"
+      style={{
+        width: size,
+        height: size,
+        backgroundColor: suitColor[suit],
+        WebkitMaskImage: `url(${suitAsset[suit]})`,
+        maskImage: `url(${suitAsset[suit]})`,
+        WebkitMaskRepeat: "no-repeat",
+        maskRepeat: "no-repeat",
+        WebkitMaskPosition: "center",
+        maskPosition: "center",
+        WebkitMaskSize: "contain",
+        maskSize: "contain",
+      }}
+    >
+      <span
+        className="block h-full w-full"
+        style={{
+          backgroundColor: suitColor[suit],
+          WebkitMaskImage: `url(${suitAsset[suit]})`,
+          maskImage: `url(${suitAsset[suit]})`,
+          WebkitMaskRepeat: "no-repeat",
+          maskRepeat: "no-repeat",
+          WebkitMaskPosition: "center",
+          maskPosition: "center",
+          WebkitMaskSize: "contain",
+          maskSize: "contain",
+          filter:
+            tone === "playArea"
+              ? suit === "SPADES"
+                ? "drop-shadow(0 0 0.15px rgba(8,47,73,0.95))"
+                : suit === "HEARTS"
+                  ? "drop-shadow(0 0 0.15px rgba(127,29,29,0.92))"
+                  : suit === "DIAMONDS"
+                    ? "drop-shadow(0 0 0.15px rgba(112,26,117,0.9))"
+                    : "drop-shadow(0 0 0.15px rgba(6,78,59,0.92))"
+              : suit === "SPADES"
+                ? "drop-shadow(0 0 4px rgba(59,130,246,0.18)) drop-shadow(0 0 0.2px rgba(15,23,42,0.9))"
+                : suit === "HEARTS"
+                  ? "drop-shadow(0 0 5px rgba(220,38,38,0.2)) drop-shadow(0 0 0.2px rgba(127,29,29,0.85))"
+                  : suit === "DIAMONDS"
+                    ? "drop-shadow(0 0 5px rgba(192,38,211,0.18)) drop-shadow(0 0 0.2px rgba(112,26,117,0.85))"
+                    : "drop-shadow(0 0 5px rgba(5,150,105,0.18)) drop-shadow(0 0 0.2px rgba(6,78,59,0.85))",
+          transform: tone === "playArea" ? "scale(1.01)" : "scale(1.04)",
+          transformOrigin: "center",
+        }}
+      />
     </span>
   );
 }

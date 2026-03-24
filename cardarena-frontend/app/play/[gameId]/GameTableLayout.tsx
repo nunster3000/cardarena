@@ -226,7 +226,7 @@ export default function GameTableLayout({ gameState, mySeat, players, trick, pla
               key={playedCardFx.id}
               className="pointer-events-none absolute left-1/2 top-[88%] h-16 w-11 -translate-x-1/2 -translate-y-1/2 animate-[playToCenter_320ms_cubic-bezier(0.22,1,0.36,1)_forwards]"
             >
-              <PlayingCard card={playedCardFx.card} className="h-full w-full shadow-[0_14px_26px_rgba(0,0,0,0.28)]" centerSuitClassName="text-[1.25rem] leading-none" cornerClassName="text-[9px]" />
+              <PlayingCard card={playedCardFx.card} tone="playArea" className="h-full w-full shadow-[0_14px_26px_rgba(0,0,0,0.28)]" centerSuitClassName="text-[1.25rem] leading-none" cornerClassName="text-[9px]" />
             </div>
           ) : null}
           {(trick || []).map((card, idx) => {
@@ -250,7 +250,7 @@ export default function GameTableLayout({ gameState, mySeat, players, trick, pla
                       : "shadow-[0_10px_18px_rgba(0,0,0,0.22)]"
                   }`}
                 >
-                  <PlayingCard card={card} className="h-full w-full" centerSuitClassName="text-[1.2rem] leading-none" cornerClassName="text-[9px]" footerLabel={`S${card.seat}`} />
+                  <PlayingCard card={card} tone="playArea" className="h-full w-full" centerSuitClassName="text-[1.2rem] leading-none" cornerClassName="text-[9px]" footerLabel={`S${card.seat}`} />
                 </div>
               </div>
             );
